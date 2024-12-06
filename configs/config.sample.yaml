@@ -1,0 +1,39 @@
+sync_configs:
+  - type: "mongodb"
+    enable: true
+    source_connection: "mongodb://<source_username>:<source_password>@<source_host>:<source_port>"
+    target_connection: "mongodb://<target_username>:<target_password>@<target_host>:<target_port>"
+    mongodb_resume_token_path: "/path/to/mongodb_resume_token.json"
+    mappings:
+      - source_database: "source_db_1"
+        target_database: "target_db_1"
+        tables:
+          - source_table: "source_table_1"
+            target_table: "target_table_1"
+          - source_table: "source_table_2"
+            target_table: "target_table_2"
+      - source_database: "source_db_2"
+        target_database: "target_db_2"
+        tables:
+          - source_table: "source_table_3"
+            target_table: "target_table_3"
+
+  - type: "mysql"
+    enable: true
+    source_connection: "<source_username>:<source_password>@tcp(<source_host>:<source_port>)/<source_database>"
+    target_connection: "<target_username>:<target_password>@tcp(<target_host>:<target_port>)/<target_database>"
+    mysql_position_path: "/path/to/mysql_position.json"
+    mappings:
+      - source_database: "source_db_1"
+        target_database: "target_db_1"
+        tables:
+          - source_table: "source_table_1"
+            target_table: "target_table_1"
+          - source_table: "source_table_2"
+            target_table: "target_table_2"
+      - source_database: "source_db_2"
+        target_database: "target_db_2"
+        tables:
+          - source_table: "source_table_3"
+            target_table: "target_table_3"
+    dump_execution_path: "/path/to/dump_tool"
