@@ -55,13 +55,13 @@ cd sync
 go mod tidy
 
 # 3.Build the binary
-cp config.sample.yaml config.yaml
+cp configs/config.sample.yaml configs/config.yaml
 # Edit config.yaml to replace the placeholders with your instance details.
 go build -o sync cmd/sync/main.go
 
 # 4.Build the Docker image
 docker build -t sync .
-docker run -v $(pwd)/config.yaml:/app/config.yaml sync
+docker run -v $(pwd)/configs/config.yaml:/app/configs/config.yaml sync
 ```
 
 ### Configuration File: `config.yaml`
@@ -71,6 +71,8 @@ The config.yaml defines multiple sync tasks. Each sync task specifies:
 - Source and target connection strings.
 - Database/table or collection mappings.
 - State file paths for resume tokens or binlog positions.
+  - MongoDB: The mongodb_resume_token_path is a configuration option used to specify the file path where the MongoDB resume token is stored.
+  - MySQL: The mysql_position_path is a configuration option that specifies the file path where the MySQL binlog position is stored.
 
 #### Example `config.yaml`
 
