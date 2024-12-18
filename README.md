@@ -22,7 +22,7 @@ Synchronize Production NOSQL and SQL data to Standalone instances for Data scien
 ![image](https://github.com/user-attachments/assets/82cd3811-44bf-4d44-8ac8-9f32aace7a83)
 
 ### MySQL
-![image](https://github.com/user-attachments/assets/4b8f77ec-8072-41a1-ba7c-000bf91282cc)
+![image](https://github.com/user-attachments/assets/f8a029b6-5185-487e-9d41-d183dca487fc)
 
 
 
