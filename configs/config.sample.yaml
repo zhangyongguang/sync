@@ -3,7 +3,7 @@ sync_configs:
     enable: true
     source_connection: "mongodb://<source_username>:<source_password>@<source_host>:<source_port>"
     target_connection: "mongodb://<target_username>:<target_password>@<target_host>:<target_port>"
-    mongodb_resume_token_path: "/path/to/mongodb_resume_token.json"
+    mongodb_resume_token_path: "/path/to/mongodb_resume_token"
     mappings:
       - source_database: "source_db_1"
         target_database: "target_db_1"
@@ -22,7 +22,7 @@ sync_configs:
     enable: true
     source_connection: "<source_username>:<source_password>@tcp(<source_host>:<source_port>)/<source_database>"
     target_connection: "<target_username>:<target_password>@tcp(<target_host>:<target_port>)/<target_database>"
-    mysql_position_path: "/path/to/mysql_position.json"
+    mysql_position_path: "/path/to/mysql_position"
     mappings:
       - source_database: "source_db_1"
         target_database: "target_db_1"
