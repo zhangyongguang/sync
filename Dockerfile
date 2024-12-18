@@ -21,7 +21,7 @@ FROM alpine:latest
 
 # Set timezone (optional)
 RUN apk add --no-cache tzdata
-ENV TZ=Asia/Shanghai
+ENV TZ=Asia/Tokyo
 
 # Set the working directory
 WORKDIR /app
