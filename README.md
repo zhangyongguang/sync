@@ -50,7 +50,17 @@ Synchronize Production NOSQL and SQL data to Standalone instances for Data scien
   - A MySQL instance with binlog enabled (ROW or MIXED format recommended) and a user with replication privileges.
   - A target MySQL instance with write permissions.
 
-## Installation
+## Quick start
+
+This is a demo for macOS on amd64. For other operating systems and architectures, you need to replace the download link with the appropriate binary URL for your system.
+```
+curl -L -o sync.tar.gz https://github.com/retail-ai-inc/sync/releases/download/v1.1/sync_1.1_darwin_amd64.tar.gz
+tar -xzf sync.tar.gz
+# Edit configs/config.yaml to replace the placeholders with your instance details.
+./sync
+```
+
+## Installation(For development)
 
 ```
 # 1.Clone the repository:
@@ -88,7 +98,7 @@ sync_configs:
     enable: true
     source_connection: "mongodb://user:pass@host1:27017"
     target_connection: "mongodb://user:pass@host2:27017"
-    mongodb_resume_token_path: "/data/state/mongodb_resume_token.json"
+    mongodb_resume_token_path: "/data/state/mongodb_resume_token"
     mappings:
       - source_database: "source_db"
         target_database: "target_db"
@@ -102,7 +112,7 @@ sync_configs:
     enable: true
     source_connection: "user:pass@tcp(source-host:3306)/source_db"
     target_connection: "user:pass@tcp(target-host:3306)/target_db"
-    mysql_position_path: "/data/state/mysql_position.json"
+    mysql_position_path: "/data/state/mysql_position"
     mappings:
       - source_database: "source_db"
         target_database: "target_db"
