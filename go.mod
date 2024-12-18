@@ -1,10 +1,11 @@
-module sync
+module github.com/retail-ai-inc/sync
 
 go 1.22.5
 
 require (
 	github.com/go-mysql-org/go-mysql v1.10.0
 	github.com/go-sql-driver/mysql v1.8.1
+	github.com/google/uuid v1.3.0
 	github.com/sirupsen/logrus v1.9.3
 	go.mongodb.org/mongo-driver v1.17.1
 	gopkg.in/yaml.v2 v2.4.0
@@ -16,7 +17,6 @@ require (
 	github.com/Masterminds/semver v1.5.0 // indirect
 	github.com/goccy/go-json v0.10.2 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
-	github.com/google/uuid v1.3.0 // indirect
 	github.com/klauspost/compress v1.17.8 // indirect
 	github.com/montanaflynn/stats v0.7.1 // indirect
 	github.com/pingcap/errors v0.11.5-0.20240311024730-e056997136bb // indirect

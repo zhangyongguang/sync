@@ -51,3 +51,5 @@ env.json
 config.json
 .DS_Store
 config.yaml
+.goreleaser.yaml
+dist/
