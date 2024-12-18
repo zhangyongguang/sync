@@ -31,9 +31,6 @@ Synchronize Production NOSQL and SQL data to Standalone instances for Data scien
 - **Initial Sync**:
   - MongoDB: Bulk synchronization of data from the MongoDB cluster or MongoDB replica set to the standalone MongoDB instance.
   - MySQL: Initial dump (if required) or start from a specified binlog position.
-- **Incremental Sync**:
-  - MongoDB: Synchronizes newly updated or inserted data since the last sync using timestamps.
-  - MySQL: Continuously applies changes read from the MySQL binlog, maintaining a current position for restart.
 - **Change Stream & Binlog Monitoring**:
   - MongoDB: Watches for real-time changes (insert, update, replace, delete) in the cluster's collections and reflects them in the standalone instance.
   - MySQL: Uses binlog replication events to capture incremental changes.
