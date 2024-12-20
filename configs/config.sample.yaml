@@ -37,3 +37,18 @@ sync_configs:
           - source_table: "source_table_3"
             target_table: "target_table_3"
     dump_execution_path: "/path/to/dump_tool"
+
+  - type: "mariadb"
+    enable: true
+    source_connection: "<source_username>:<source_password>@tcp(<mariadb_source_host>:<mariadb_source_port>)/<source_database>"
+    target_connection: "<target_username>:<target_password>@tcp(<mariadb_target_host>:<mariadb_target_port>)/<target_database>"
+    mysql_position_path: "/path/to/mariadb_position"
+    mappings:
+      - source_database: "source_db_1"
+        target_database: "target_db_1"
+        tables:
+          - source_table: "source_table_1"
+            target_table: "target_table_1"
+          - source_table: "source_table_2"
+            target_table: "target_table_2"
+    dump_execution_path: "/path/to/dump_tool"

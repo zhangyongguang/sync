@@ -50,6 +50,12 @@ func main() {
 				syncer := syncer.NewMySQLSyncer(syncCfg, log)
 				syncer.Start(ctx)
 			}(syncCfg)
+		case "mariadb":
+			go func(syncCfg config.SyncConfig) {
+				defer wg.Done()
+				syncer := syncer.NewMariaDBSyncer(syncCfg, log)
+				syncer.Start(ctx)
+			}(syncCfg)
 		default:
 			log.Errorf("Unknown sync type: %s", syncCfg.Type)
 			wg.Done()

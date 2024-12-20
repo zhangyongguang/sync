@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/retail-ai-inc/sync/pkg/config"
 	"github.com/retail-ai-inc/sync/pkg/logger"
+	"github.com/retail-ai-inc/sync/pkg/syncer/mariadb"
 	"github.com/retail-ai-inc/sync/pkg/syncer/mongodb"
 	"github.com/retail-ai-inc/sync/pkg/syncer/mysql"
 	"github.com/sirupsen/logrus"
@@ -36,8 +37,8 @@ func getUniqueID() int64 {
 	return atomic.AddInt64(&testIDCounter, 1)
 }
 
-// Get the next available auto-increment ID value from the MySQL table: max(id) + 1
-func getNextMySQLID(t *testing.T, db *sql.DB, database, table string) int64 {
+// Get the next available auto-increment ID value from a SQL table: max(id) + 1
+func getNextSQLID(t *testing.T, db *sql.DB, database, table string) int64 {
 	var maxID sql.NullInt64
 	query := fmt.Sprintf("SELECT IFNULL(MAX(id), 0) FROM %s.%s", database, table)
 	err := db.QueryRow(query).Scan(&maxID)
@@ -64,9 +65,10 @@ func TestFullSync(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Check if MongoDB and MySQL are enabled
+	// Check if MongoDB, MySQL, and MariaDB are enabled
 	mongoEnabled := false
 	mysqlEnabled := false
+	mariaDBEnabled := false
 	for _, sc := range cfg.SyncConfigs {
 		if sc.Type == "mongodb" && sc.Enable {
 			mongoEnabled = true
@@ -74,10 +76,13 @@ func TestFullSync(t *testing.T) {
 		if sc.Type == "mysql" && sc.Enable {
 			mysqlEnabled = true
 		}
+		if sc.Type == "mariadb" && sc.Enable {
+			mariaDBEnabled = true
+		}
 	}
 
-	if !mongoEnabled && !mysqlEnabled {
-		t.Skip("No enabled MongoDB or MySQL sync config found in config.yaml, skipping test.")
+	if !mongoEnabled && !mysqlEnabled && !mariaDBEnabled {
+		t.Skip("No enabled MongoDB, MySQL or MariaDB sync config found in config.yaml, skipping test.")
 	}
 
 	t.Log("Starting FullSync test...")
@@ -88,6 +93,8 @@ func TestFullSync(t *testing.T) {
 		mongoTargetClient *mongo.Client
 		mysqlSourceDB     *sql.DB
 		mysqlTargetDB     *sql.DB
+		mariaDBSourceDB   *sql.DB
+		mariaDBTargetDB   *sql.DB
 		err               error
 	)
 
@@ -102,7 +109,7 @@ func TestFullSync(t *testing.T) {
 	}
 
 	if mysqlEnabled {
-		mysqlSourceDB, mysqlTargetDB, err = connectMySQL(cfg)
+		mysqlSourceDB, mysqlTargetDB, err = connectSQLDB(cfg, "mysql")
 		if err != nil {
 			t.Fatalf("Failed to connect MySQL: %v", err)
 		}
@@ -111,7 +118,17 @@ func TestFullSync(t *testing.T) {
 		t.Log("MySQL source/target connected successfully.")
 	}
 
-	mongoMappings, mysqlMappings := extractMappings(cfg)
+	if mariaDBEnabled {
+		mariaDBSourceDB, mariaDBTargetDB, err = connectSQLDB(cfg, "mariadb")
+		if err != nil {
+			t.Fatalf("Failed to connect MariaDB: %v", err)
+		}
+		defer mariaDBSourceDB.Close()
+		defer mariaDBTargetDB.Close()
+		t.Log("MariaDB source/target connected successfully.")
+	}
+
+	mongoMappings, mysqlMappings, mariadbMappings := extractAllMappings(cfg)
 
 	// Clean up target data
 	// if mongoEnabled && mongoTargetClient != nil {
@@ -128,15 +145,19 @@ func TestFullSync(t *testing.T) {
 	t.Log("Syncers started, waiting initial sync...")
 	time.Sleep(5 * time.Second)
 
-	// Insert initial data (adjust the insertion timing to before starting the syncers)
-	initialInsertCount := 3 // Can control the number of inserted records via a variable
+	// Insert initial data
+	initialInsertCount := 3
 	if mongoEnabled && mongoSourceClient != nil {
 		prepareInitialData(t, mongoSourceClient, mongoMappings, "initial_mongo_doc", initialInsertCount)
-		t.Log(fmt.Sprintf("Inserted %d initial documents into MongoDB source.", initialInsertCount))
+		t.Logf("Inserted %d initial documents into MongoDB source.", initialInsertCount)
 	}
 	if mysqlEnabled && mysqlSourceDB != nil {
 		prepareInitialData(t, mysqlSourceDB, mysqlMappings, "initial_mysql_doc", initialInsertCount)
-		t.Log(fmt.Sprintf("Inserted %d initial rows into MySQL source.", initialInsertCount))
+		t.Logf("Inserted %d initial rows into MySQL source.", initialInsertCount)
+	}
+	if mariaDBEnabled && mariaDBSourceDB != nil {
+		prepareInitialData(t, mariaDBSourceDB, mariadbMappings, "initial_mariadb_doc", initialInsertCount)
+		t.Logf("Inserted %d initial rows into MariaDB source.", initialInsertCount)
 	}
 
 	// Verify initial data synchronization
@@ -150,7 +171,12 @@ func TestFullSync(t *testing.T) {
 		t.Log("Verified MySQL initial sync data consistency.")
 	}
 
-	// Perform create/update/delete operations during synchronization
+	if mariaDBEnabled && mariaDBSourceDB != nil && mariaDBTargetDB != nil {
+		verifyDataConsistency(t, mariaDBSourceDB, mariaDBTargetDB, mariadbMappings, "initial_mariadb_sync")
+		t.Log("Verified MariaDB initial sync data consistency.")
+	}
+
+	// Perform create/update/delete operations
 	if mongoEnabled && mongoSourceClient != nil && mongoTargetClient != nil {
 		performDataOperations(t, mongoSourceClient, mongoTargetClient, mongoMappings, "mongodb")
 		t.Log("MongoDB increment/update/delete operations tested successfully.")
@@ -158,6 +184,10 @@ func TestFullSync(t *testing.T) {
 	if mysqlEnabled && mysqlSourceDB != nil && mysqlTargetDB != nil {
 		performDataOperations(t, mysqlSourceDB, mysqlTargetDB, mysqlMappings, "mysql")
 		t.Log("MySQL increment/update/delete operations tested successfully.")
+	}
+	if mariaDBEnabled && mariaDBSourceDB != nil && mariaDBTargetDB != nil {
+		performDataOperations(t, mariaDBSourceDB, mariaDBTargetDB, mariadbMappings, "mariadb")
+		t.Log("MariaDB increment/update/delete operations tested successfully.")
 	}
 
 	time.Sleep(5 * time.Second)
@@ -197,21 +227,20 @@ func connectMongoDB(cfg *config.Config) (*mongo.Client, *mongo.Client, error) {
 	return sourceClient, targetClient, nil
 }
 
-// Connect to MySQL
-func connectMySQL(cfg *config.Config) (*sql.DB, *sql.DB, error) {
-	var mysqlSourceDSN, mysqlTargetDSN string
+func connectSQLDB(cfg *config.Config, dbType string) (*sql.DB, *sql.DB, error) {
+	var sourceDSN, targetDSN string
 	for _, sc := range cfg.SyncConfigs {
-		if sc.Type == "mysql" && sc.Enable {
-			mysqlSourceDSN = sc.SourceConnection
-			mysqlTargetDSN = sc.TargetConnection
+		if sc.Type == dbType && sc.Enable {
+			sourceDSN = sc.SourceConnection
+			targetDSN = sc.TargetConnection
 			break
 		}
 	}
-	if mysqlSourceDSN == "" || mysqlTargetDSN == "" {
-		return nil, nil, fmt.Errorf("no enabled MySQL sync config found in config.yaml")
+	if sourceDSN == "" || targetDSN == "" {
+		return nil, nil, fmt.Errorf("no enabled %s sync config found in config.yaml", dbType)
 	}
 
-	srcDB, err := sql.Open("mysql", mysqlSourceDSN)
+	srcDB, err := sql.Open("mysql", sourceDSN)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -219,7 +248,7 @@ func connectMySQL(cfg *config.Config) (*sql.DB, *sql.DB, error) {
 		return nil, nil, err
 	}
 
-	tgtDB, err := sql.Open("mysql", mysqlTargetDSN)
+	tgtDB, err := sql.Open("mysql", targetDSN)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -272,8 +301,8 @@ func cleanupMySQLSourceAndTargetData(t *testing.T, mysqlSourceDB, mysqlTargetDB 
 }
 
 // Extract mappings
-func extractMappings(cfg *config.Config) ([]config.DatabaseMapping, []config.DatabaseMapping) {
-	var mongoMapping, mysqlMapping []config.DatabaseMapping
+func extractAllMappings(cfg *config.Config) ([]config.DatabaseMapping, []config.DatabaseMapping, []config.DatabaseMapping) {
+	var mongoMapping, mysqlMapping, mariadbMapping []config.DatabaseMapping
 	for _, sc := range cfg.SyncConfigs {
 		if sc.Type == "mongodb" && sc.Enable {
 			mongoMapping = sc.Mappings
@@ -281,8 +310,11 @@ func extractMappings(cfg *config.Config) ([]config.DatabaseMapping, []config.Dat
 		if sc.Type == "mysql" && sc.Enable {
 			mysqlMapping = sc.Mappings
 		}
+		if sc.Type == "mariadb" && sc.Enable {
+			mariadbMapping = sc.Mappings
+		}
 	}
-	return mongoMapping, mysqlMapping
+	return mongoMapping, mysqlMapping, mariadbMapping
 }
 
 // Start all syncers
@@ -297,6 +329,9 @@ func startAllSyncers(ctx context.Context, cfg *config.Config, log *logrus.Logger
 			go syncer.Start(ctx)
 		case "mysql":
 			syncer := mysql.NewMySQLSyncer(sc, log)
+			go syncer.Start(ctx)
+		case "mariadb":
+			syncer := mariadb.NewMariaDBSyncer(sc, log)
 			go syncer.Start(ctx)
 		}
 	}
@@ -327,14 +362,14 @@ func prepareInitialData(t *testing.T, src interface{}, mappings []config.Databas
 		for _, dbmap := range mappings {
 			for _, tblmap := range dbmap.Tables {
 				for i := 0; i < count; i++ {
-					nextID := getNextMySQLID(t, s, dbmap.SourceDatabase, tblmap.SourceTable)
+					nextID := getNextSQLID(t, s, dbmap.SourceDatabase, tblmap.SourceTable)
 					query := fmt.Sprintf("INSERT INTO %s.%s (id, name, content) VALUES (?, ?, ?)", dbmap.SourceDatabase, tblmap.SourceTable)
 					name := fmt.Sprintf("%s_%s", docName, uuid.New().String())
 					content := fmt.Sprintf("RandomContent_%d_%s", i, uuid.New().String())
 					_, err := s.Exec(query, nextID, name, content)
 					if err != nil {
-						t.Fatalf("Failed to insert initial row into MySQL %s.%s: %v",
-							dbmap.SourceDatabase, tblmap.SourceTable, err)
+						t.Fatalf("Failed to insert initial row into %s %s.%s: %v",
+							dbmap.SourceDatabase, dbmap.SourceDatabase, tblmap.SourceTable, err)
 					}
 				}
 			}
@@ -421,7 +456,7 @@ func verifyDataConsistency(t *testing.T, src interface{}, tgt interface{}, mappi
 				srcQuery := fmt.Sprintf("SELECT id, name, content FROM %s.%s ORDER BY id", dbmap.SourceDatabase, tblmap.SourceTable)
 				srcRows, err := s.Query(srcQuery)
 				if err != nil {
-					t.Fatalf("Failed to fetch rows from MySQL source %s.%s: %v", dbmap.SourceDatabase, tblmap.SourceTable, err)
+					t.Fatalf("Failed to fetch rows from source %s.%s: %v", dbmap.SourceDatabase, tblmap.SourceTable, err)
 				}
 				defer srcRows.Close()
 				var srcRowsData []map[string]interface{}
@@ -429,7 +464,7 @@ func verifyDataConsistency(t *testing.T, src interface{}, tgt interface{}, mappi
 					var id int64
 					var name, content string
 					if err := srcRows.Scan(&id, &name, &content); err != nil {
-						t.Fatalf("Failed to scan row from MySQL source %s.%s: %v", dbmap.SourceDatabase, tblmap.SourceTable, err)
+						t.Fatalf("Failed to scan row from source %s.%s: %v", dbmap.SourceDatabase, tblmap.SourceTable, err)
 					}
 					srcRowsData = append(srcRowsData, map[string]interface{}{
 						"id":      id,
@@ -442,7 +477,7 @@ func verifyDataConsistency(t *testing.T, src interface{}, tgt interface{}, mappi
 				tgtQuery := fmt.Sprintf("SELECT id, name, content FROM %s.%s ORDER BY id", dbmap.TargetDatabase, tblmap.TargetTable)
 				tgtRows, err := tc.Query(tgtQuery)
 				if err != nil {
-					t.Fatalf("Failed to fetch rows from MySQL target %s.%s: %v", dbmap.TargetDatabase, tblmap.TargetTable, err)
+					t.Fatalf("Failed to fetch rows from target %s.%s: %v", dbmap.TargetDatabase, tblmap.TargetTable, err)
 				}
 				defer tgtRows.Close()
 				var tgtRowsData []map[string]interface{}
@@ -450,7 +485,7 @@ func verifyDataConsistency(t *testing.T, src interface{}, tgt interface{}, mappi
 					var id int64
 					var name, content string
 					if err := tgtRows.Scan(&id, &name, &content); err != nil {
-						t.Fatalf("Failed to scan row from MySQL target %s.%s: %v", dbmap.TargetDatabase, tblmap.TargetTable, err)
+						t.Fatalf("Failed to scan row from target %s.%s: %v", dbmap.TargetDatabase, tblmap.TargetTable, err)
 					}
 					tgtRowsData = append(tgtRowsData, map[string]interface{}{
 						"id":      id,
@@ -461,8 +496,8 @@ func verifyDataConsistency(t *testing.T, src interface{}, tgt interface{}, mappi
 
 				// Compare counts
 				if len(srcRowsData) != len(tgtRowsData) {
-					t.Fatalf("MySQL data mismatch at %s stage for %s.%s -> %s.%s: sourceCount=%d, targetCount=%d",
-						stage, dbmap.SourceDatabase, tblmap.SourceTable,
+					t.Fatalf("%s data mismatch at %s stage for %s.%s -> %s.%s: sourceCount=%d, targetCount=%d",
+						dbmap.SourceDatabase, stage, dbmap.SourceDatabase, tblmap.SourceTable,
 						dbmap.TargetDatabase, tblmap.TargetTable, len(srcRowsData), len(tgtRowsData))
 				}
 
@@ -475,12 +510,12 @@ func verifyDataConsistency(t *testing.T, src interface{}, tgt interface{}, mappi
 				for _, row := range tgtRowsData {
 					srcRow, exists := srcMap[row["id"].(int64)]
 					if !exists {
-						t.Fatalf("MySQL target has extra row with id=%d in %s.%s", row["id"].(int64), dbmap.TargetDatabase, tblmap.TargetTable)
+						t.Fatalf("Target has extra row with id=%d in %s.%s", row["id"].(int64), dbmap.TargetDatabase, tblmap.TargetTable)
 					}
 					// Compare specific fields
 					for key, value := range srcRow {
 						if tgtVal, exists := row[key]; !exists || tgtVal != value {
-							t.Fatalf("MySQL data mismatch for id=%d in field '%s': source='%v', target='%v'",
+							t.Fatalf("Data mismatch for id=%d in field '%s': source='%v', target='%v'",
 								row["id"].(int64), key, value, tgtVal)
 						}
 					}
@@ -495,8 +530,8 @@ func performDataOperations(t *testing.T, src interface{}, tgt interface{}, mappi
 	switch dbType {
 	case "mongodb":
 		performMongoOperations(t, src.(*mongo.Client), tgt.(*mongo.Client), mappings)
-	case "mysql":
-		performMySQLOperations(t, src.(*sql.DB), tgt.(*sql.DB), mappings)
+	case "mysql", "mariadb":
+		performSQLOperations(t, src.(*sql.DB), tgt.(*sql.DB), mappings, dbType)
 	default:
 		t.Fatalf("Unknown dbType: %s", dbType)
 	}
@@ -546,38 +581,38 @@ func performMongoOperations(t *testing.T, sClient, tClient *mongo.Client, mappin
 	}
 }
 
-func performMySQLOperations(t *testing.T, sDB, tDB *sql.DB, mappings []config.DatabaseMapping) {
+func performSQLOperations(t *testing.T, sDB, tDB *sql.DB, mappings []config.DatabaseMapping, dbType string) {
 	for _, dbmap := range mappings {
 		for _, tblmap := range dbmap.Tables {
 			// Insert
 			insertCount := 3
 			for i := 0; i < insertCount; i++ {
-				insertID := getNextMySQLID(t, sDB, dbmap.SourceDatabase, tblmap.SourceTable)
+				insertID := getNextSQLID(t, sDB, dbmap.SourceDatabase, tblmap.SourceTable)
 				insertQuery := fmt.Sprintf("INSERT INTO %s.%s (id, name, content) VALUES (?, ?, ?)", dbmap.SourceDatabase, tblmap.SourceTable)
 				name := "test_insert_" + uuid.New().String()
 				content := "RandomContent_" + strconv.Itoa(rand.Intn(1000))
 				if _, err := sDB.Exec(insertQuery, insertID, name, content); err != nil {
-					t.Fatalf("MySQL insert failed: %v", err)
+					t.Fatalf("%s insert failed: %v", dbType, err)
 				}
 			}
-			t.Log("MySQL insert operation successful.")
-			verifyDataConsistency(t, sDB, tDB, []config.DatabaseMapping{dbmap}, "mysql_insert")
+			t.Logf("%s insert operation successful.", dbType)
+			verifyDataConsistency(t, sDB, tDB, []config.DatabaseMapping{dbmap}, dbType+"_insert")
 
 			// Update
 			updateQuery := fmt.Sprintf("UPDATE %s.%s SET name=CONCAT('test_updated_', UUID()) WHERE name LIKE 'test_insert_%%'", dbmap.SourceDatabase, tblmap.SourceTable)
 			if _, err := sDB.Exec(updateQuery); err != nil {
-				t.Fatalf("MySQL update failed: %v", err)
+				t.Fatalf("%s update failed: %v", dbType, err)
 			}
-			t.Log("MySQL update operation successful.")
-			verifyDataConsistency(t, sDB, tDB, []config.DatabaseMapping{dbmap}, "mysql_update")
+			t.Logf("%s update operation successful.", dbType)
+			verifyDataConsistency(t, sDB, tDB, []config.DatabaseMapping{dbmap}, dbType+"_update")
 
 			// Delete
 			deleteQuery := fmt.Sprintf("DELETE FROM %s.%s WHERE name LIKE 'test_updated_%%'", dbmap.SourceDatabase, tblmap.SourceTable)
 			if _, err := sDB.Exec(deleteQuery); err != nil {
-				t.Fatalf("MySQL delete failed: %v", err)
+				t.Fatalf("%s delete failed: %v", dbType, err)
 			}
-			t.Log("MySQL delete operation successful.")
-			verifyDataConsistency(t, sDB, tDB, []config.DatabaseMapping{dbmap}, "mysql_delete")
+			t.Logf("%s delete operation successful.", dbType)
+			verifyDataConsistency(t, sDB, tDB, []config.DatabaseMapping{dbmap}, dbType+"_delete")
 		}
 	}
 }
