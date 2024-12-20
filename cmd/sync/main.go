@@ -56,6 +56,12 @@ func main() {
 				syncer := syncer.NewMariaDBSyncer(syncCfg, log)
 				syncer.Start(ctx)
 			}(syncCfg)
+		case "postgresql":
+			go func(syncCfg config.SyncConfig) {
+				defer wg.Done()
+				syncer := syncer.NewPostgreSQLSyncer(syncCfg, log)
+				syncer.Start(ctx)
+			}(syncCfg)
 		default:
 			log.Errorf("Unknown sync type: %s", syncCfg.Type)
 			wg.Done()

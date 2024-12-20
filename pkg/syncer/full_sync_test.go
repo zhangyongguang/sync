@@ -18,6 +18,7 @@ import (
 	"github.com/retail-ai-inc/sync/pkg/syncer/mariadb"
 	"github.com/retail-ai-inc/sync/pkg/syncer/mongodb"
 	"github.com/retail-ai-inc/sync/pkg/syncer/mysql"
+	"github.com/retail-ai-inc/sync/pkg/syncer/postgresql"
 	"github.com/sirupsen/logrus"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -26,6 +27,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/readpref"
 
 	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/lib/pq"
 )
 
 // Global counter for generating unique primary key IDs (MongoDB does not depend on this ID)
@@ -40,7 +42,7 @@ func getUniqueID() int64 {
 // Get the next available auto-increment ID value from a SQL table: max(id) + 1
 func getNextSQLID(t *testing.T, db *sql.DB, database, table string) int64 {
 	var maxID sql.NullInt64
-	query := fmt.Sprintf("SELECT IFNULL(MAX(id), 0) FROM %s.%s", database, table)
+	query := fmt.Sprintf("SELECT COALESCE(MAX(id),0) FROM %s.%s", database, table)
 	err := db.QueryRow(query).Scan(&maxID)
 	if err != nil {
 		t.Fatalf("Failed to get max ID from %s.%s: %v", database, table, err)
@@ -69,6 +71,7 @@ func TestFullSync(t *testing.T) {
 	mongoEnabled := false
 	mysqlEnabled := false
 	mariaDBEnabled := false
+	postgresEnabled := false
 	for _, sc := range cfg.SyncConfigs {
 		if sc.Type == "mongodb" && sc.Enable {
 			mongoEnabled = true
@@ -79,10 +82,13 @@ func TestFullSync(t *testing.T) {
 		if sc.Type == "mariadb" && sc.Enable {
 			mariaDBEnabled = true
 		}
+		if sc.Type == "postgresql" && sc.Enable {
+			postgresEnabled = true
+		}
 	}
 
-	if !mongoEnabled && !mysqlEnabled && !mariaDBEnabled {
-		t.Skip("No enabled MongoDB, MySQL or MariaDB sync config found in config.yaml, skipping test.")
+	if !mongoEnabled && !mysqlEnabled && !mariaDBEnabled && !postgresEnabled {
+		t.Skip("No enabled MongoDB, MySQL, MariaDB or PostgreSQL sync config found in config.yaml, skipping test.")
 	}
 
 	t.Log("Starting FullSync test...")
@@ -95,6 +101,8 @@ func TestFullSync(t *testing.T) {
 		mysqlTargetDB     *sql.DB
 		mariaDBSourceDB   *sql.DB
 		mariaDBTargetDB   *sql.DB
+		pgSourceDB        *sql.DB
+		pgTargetDB        *sql.DB
 		err               error
 	)
 
@@ -128,17 +136,17 @@ func TestFullSync(t *testing.T) {
 		t.Log("MariaDB source/target connected successfully.")
 	}
 
-	mongoMappings, mysqlMappings, mariadbMappings := extractAllMappings(cfg)
+	if postgresEnabled {
+		pgSourceDB, pgTargetDB, err = connectPGDB(cfg)
+		if err != nil {
+			t.Fatalf("Failed to connect PostgreSQL: %v", err)
+		}
+		defer pgSourceDB.Close()
+		defer pgTargetDB.Close()
+		t.Log("PostgreSQL source/target connected successfully.")
+	}
 
-	// Clean up target data
-	// if mongoEnabled && mongoTargetClient != nil {
-	//     cleanupMongoSourceAndTargetData(t, mongoSourceClient, mongoTargetClient, mongoMappings)
-	//     t.Log("Cleaned up MongoDB target data.")
-	// }
-	// if mysqlEnabled && mysqlTargetDB != nil {
-	//     cleanupMySQLSourceAndTargetData(t, mysqlSourceDB, mysqlTargetDB, mysqlMappings)
-	//     t.Log("Cleaned up MySQL target data.")
-	// }
+	mongoMapping, mysqlMapping, mariadbMapping, pgMapping := extractAllMappings(cfg)
 
 	// Start syncers
 	startAllSyncers(ctx, cfg, log)
@@ -148,46 +156,58 @@ func TestFullSync(t *testing.T) {
 	// Insert initial data
 	initialInsertCount := 3
 	if mongoEnabled && mongoSourceClient != nil {
-		prepareInitialData(t, mongoSourceClient, mongoMappings, "initial_mongo_doc", initialInsertCount)
+		prepareInitialData(t, mongoSourceClient, mongoMapping, "initial_mongo_doc", initialInsertCount)
 		t.Logf("Inserted %d initial documents into MongoDB source.", initialInsertCount)
 	}
 	if mysqlEnabled && mysqlSourceDB != nil {
-		prepareInitialData(t, mysqlSourceDB, mysqlMappings, "initial_mysql_doc", initialInsertCount)
+		prepareInitialData(t, mysqlSourceDB, mysqlMapping, "initial_mysql_doc", initialInsertCount)
 		t.Logf("Inserted %d initial rows into MySQL source.", initialInsertCount)
 	}
 	if mariaDBEnabled && mariaDBSourceDB != nil {
-		prepareInitialData(t, mariaDBSourceDB, mariadbMappings, "initial_mariadb_doc", initialInsertCount)
+		prepareInitialData(t, mariaDBSourceDB, mariadbMapping, "initial_mariadb_doc", initialInsertCount)
 		t.Logf("Inserted %d initial rows into MariaDB source.", initialInsertCount)
+	}
+	if postgresEnabled && pgSourceDB != nil {
+		prepareInitialData(t, pgSourceDB, pgMapping, "initial_postgres_doc", initialInsertCount)
+		t.Logf("Inserted %d initial rows into PostgreSQL source.", initialInsertCount)
 	}
 
 	// Verify initial data synchronization
 	if mongoEnabled && mongoSourceClient != nil && mongoTargetClient != nil {
-		verifyDataConsistency(t, mongoSourceClient, mongoTargetClient, mongoMappings, "initial_mongo_sync")
+		verifyDataConsistency(t, mongoSourceClient, mongoTargetClient, mongoMapping, "initial_mongo_sync")
 		t.Log("Verified MongoDB initial sync data consistency.")
 	}
 
 	if mysqlEnabled && mysqlSourceDB != nil && mysqlTargetDB != nil {
-		verifyDataConsistency(t, mysqlSourceDB, mysqlTargetDB, mysqlMappings, "initial_mysql_sync")
+		verifyDataConsistency(t, mysqlSourceDB, mysqlTargetDB, mysqlMapping, "initial_mysql_sync")
 		t.Log("Verified MySQL initial sync data consistency.")
 	}
 
 	if mariaDBEnabled && mariaDBSourceDB != nil && mariaDBTargetDB != nil {
-		verifyDataConsistency(t, mariaDBSourceDB, mariaDBTargetDB, mariadbMappings, "initial_mariadb_sync")
+		verifyDataConsistency(t, mariaDBSourceDB, mariaDBTargetDB, mariadbMapping, "initial_mariadb_sync")
 		t.Log("Verified MariaDB initial sync data consistency.")
+	}
+	if postgresEnabled && pgSourceDB != nil && pgTargetDB != nil {
+		verifyDataConsistency(t, pgSourceDB, pgTargetDB, pgMapping, "initial_postgres_sync")
+		t.Log("Verified PostgreSQL initial sync data consistency.")
 	}
 
 	// Perform create/update/delete operations
 	if mongoEnabled && mongoSourceClient != nil && mongoTargetClient != nil {
-		performDataOperations(t, mongoSourceClient, mongoTargetClient, mongoMappings, "mongodb")
+		performDataOperations(t, mongoSourceClient, mongoTargetClient, mongoMapping, "mongodb")
 		t.Log("MongoDB increment/update/delete operations tested successfully.")
 	}
 	if mysqlEnabled && mysqlSourceDB != nil && mysqlTargetDB != nil {
-		performDataOperations(t, mysqlSourceDB, mysqlTargetDB, mysqlMappings, "mysql")
+		performDataOperations(t, mysqlSourceDB, mysqlTargetDB, mysqlMapping, "mysql")
 		t.Log("MySQL increment/update/delete operations tested successfully.")
 	}
 	if mariaDBEnabled && mariaDBSourceDB != nil && mariaDBTargetDB != nil {
-		performDataOperations(t, mariaDBSourceDB, mariaDBTargetDB, mariadbMappings, "mariadb")
+		performDataOperations(t, mariaDBSourceDB, mariaDBTargetDB, mariadbMapping, "mariadb")
 		t.Log("MariaDB increment/update/delete operations tested successfully.")
+	}
+	if postgresEnabled && pgSourceDB != nil && pgTargetDB != nil {
+		performDataOperations(t, pgSourceDB, pgTargetDB, pgMapping, "postgresql")
+		t.Log("PostgreSQL increment/update/delete operations tested successfully.")
 	}
 
 	time.Sleep(5 * time.Second)
@@ -259,50 +279,41 @@ func connectSQLDB(cfg *config.Config, dbType string) (*sql.DB, *sql.DB, error) {
 	return srcDB, tgtDB, nil
 }
 
-// Clean up MongoDB source and target data
-func cleanupMongoSourceAndTargetData(t *testing.T, mongoSourceClient, mongoTargetClient *mongo.Client, mongoMapping []config.DatabaseMapping) {
-	for _, m := range mongoMapping {
-		// Clean up target database data
-		for _, tbl := range m.Tables {
-			targetColl := mongoTargetClient.Database(m.TargetDatabase).Collection(tbl.TargetTable)
-			if _, err := targetColl.DeleteMany(context.Background(), bson.M{}); err != nil {
-				t.Fatalf("Failed to cleanup Mongo target collection %s.%s: %v", m.TargetDatabase, tbl.TargetTable, err)
-			}
-		}
-
-		// Clean up source database data
-		for _, tbl := range m.Tables {
-			sourceColl := mongoSourceClient.Database(m.SourceDatabase).Collection(tbl.SourceTable)
-			if _, err := sourceColl.DeleteMany(context.Background(), bson.M{}); err != nil {
-				t.Fatalf("Failed to cleanup Mongo source collection %s.%s: %v", m.SourceDatabase, tbl.SourceTable, err)
-			}
+func connectPGDB(cfg *config.Config) (*sql.DB, *sql.DB, error) {
+	var pgSourceDSN, pgTargetDSN string
+	for _, sc := range cfg.SyncConfigs {
+		if sc.Type == "postgresql" && sc.Enable {
+			pgSourceDSN = sc.SourceConnection
+			pgTargetDSN = sc.TargetConnection
+			break
 		}
 	}
-}
-
-// Clean up MySQL source and target data
-func cleanupMySQLSourceAndTargetData(t *testing.T, mysqlSourceDB, mysqlTargetDB *sql.DB, mysqlMapping []config.DatabaseMapping) {
-
-	for _, m := range mysqlMapping {
-		for _, tbl := range m.Tables {
-			sourceQuery := fmt.Sprintf("DELETE FROM %s.%s", m.SourceDatabase, tbl.SourceTable)
-			t.Log("MySQL source query: " + sourceQuery + ".")
-			if _, err := mysqlSourceDB.Exec(sourceQuery); err != nil {
-				t.Fatalf("Failed to cleanup MySQL source table %s.%s: %v", m.SourceDatabase, tbl.SourceTable, err)
-			}
-
-			targetQuery := fmt.Sprintf("DELETE FROM %s.%s", m.TargetDatabase, tbl.TargetTable)
-			t.Log("MySQL target query: " + targetQuery + ".")
-			if _, err := mysqlTargetDB.Exec(targetQuery); err != nil {
-				t.Fatalf("Failed to cleanup MySQL target table %s.%s: %v", m.TargetDatabase, tbl.TargetTable, err)
-			}
-		}
+	if pgSourceDSN == "" || pgTargetDSN == "" {
+		return nil, nil, fmt.Errorf("no enabled postgresql sync config found in config.yaml")
 	}
+
+	srcDB, err := sql.Open("postgres", pgSourceDSN)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := srcDB.Ping(); err != nil {
+		return nil, nil, err
+	}
+
+	tgtDB, err := sql.Open("postgres", pgTargetDSN)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := tgtDB.Ping(); err != nil {
+		return nil, nil, err
+	}
+
+	return srcDB, tgtDB, nil
 }
 
 // Extract mappings
-func extractAllMappings(cfg *config.Config) ([]config.DatabaseMapping, []config.DatabaseMapping, []config.DatabaseMapping) {
-	var mongoMapping, mysqlMapping, mariadbMapping []config.DatabaseMapping
+func extractAllMappings(cfg *config.Config) ([]config.DatabaseMapping, []config.DatabaseMapping, []config.DatabaseMapping, []config.DatabaseMapping) {
+	var mongoMapping, mysqlMapping, mariadbMapping, pgMapping []config.DatabaseMapping
 	for _, sc := range cfg.SyncConfigs {
 		if sc.Type == "mongodb" && sc.Enable {
 			mongoMapping = sc.Mappings
@@ -313,8 +324,11 @@ func extractAllMappings(cfg *config.Config) ([]config.DatabaseMapping, []config.
 		if sc.Type == "mariadb" && sc.Enable {
 			mariadbMapping = sc.Mappings
 		}
+		if sc.Type == "postgresql" && sc.Enable {
+			pgMapping = sc.Mappings
+		}
 	}
-	return mongoMapping, mysqlMapping, mariadbMapping
+	return mongoMapping, mysqlMapping, mariadbMapping, pgMapping
 }
 
 // Start all syncers
@@ -332,6 +346,9 @@ func startAllSyncers(ctx context.Context, cfg *config.Config, log *logrus.Logger
 			go syncer.Start(ctx)
 		case "mariadb":
 			syncer := mariadb.NewMariaDBSyncer(sc, log)
+			go syncer.Start(ctx)
+		case "postgresql":
+			syncer := postgresql.NewPostgreSQLSyncer(sc, log)
 			go syncer.Start(ctx)
 		}
 	}
@@ -368,8 +385,8 @@ func prepareInitialData(t *testing.T, src interface{}, mappings []config.Databas
 					content := fmt.Sprintf("RandomContent_%d_%s", i, uuid.New().String())
 					_, err := s.Exec(query, nextID, name, content)
 					if err != nil {
-						t.Fatalf("Failed to insert initial row into %s %s.%s: %v",
-							dbmap.SourceDatabase, dbmap.SourceDatabase, tblmap.SourceTable, err)
+						t.Fatalf("Failed to insert initial row into %s.%s: %v",
+							dbmap.SourceDatabase, tblmap.SourceTable, err)
 					}
 				}
 			}
@@ -530,7 +547,7 @@ func performDataOperations(t *testing.T, src interface{}, tgt interface{}, mappi
 	switch dbType {
 	case "mongodb":
 		performMongoOperations(t, src.(*mongo.Client), tgt.(*mongo.Client), mappings)
-	case "mysql", "mariadb":
+	case "mysql", "mariadb", "postgresql":
 		performSQLOperations(t, src.(*sql.DB), tgt.(*sql.DB), mappings, dbType)
 	default:
 		t.Fatalf("Unknown dbType: %s", dbType)

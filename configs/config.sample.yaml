@@ -52,3 +52,18 @@ sync_configs:
           - source_table: "source_table_2"
             target_table: "target_table_2"
     dump_execution_path: "/path/to/dump_tool"
+
+  - type: "postgresql"
+    enable: true
+    source_connection: "postgres://<source_username>:<source_password>@<pg_source_host>:<pg_source_port>/<source_db>?sslmode=disable"
+    target_connection: "postgres://<target_username>:<target_password>@<pg_target_host>:<pg_target_port>/<target_db>?sslmode=disable"
+    pg_replication_slot: "sync_slot"
+    pg_plugin: "wal2json"
+    mappings:
+      - source_database: "source_db_1"
+        target_database: "target_db_1"
+        tables:
+          - source_table: "source_table_1"
+            target_table: "target_table_1"
+          - source_table: "source_table_2"
+            target_table: "target_table_2"    

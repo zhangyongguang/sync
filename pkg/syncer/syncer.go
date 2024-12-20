@@ -5,6 +5,7 @@ import (
 	"github.com/retail-ai-inc/sync/pkg/syncer/mariadb"
 	"github.com/retail-ai-inc/sync/pkg/syncer/mongodb"
 	"github.com/retail-ai-inc/sync/pkg/syncer/mysql"
+	"github.com/retail-ai-inc/sync/pkg/syncer/postgresql"
 	"github.com/sirupsen/logrus"
 )
 
@@ -18,4 +19,8 @@ func NewMySQLSyncer(cfg config.SyncConfig, logger *logrus.Logger) *mysql.MySQLSy
 
 func NewMariaDBSyncer(cfg config.SyncConfig, logger *logrus.Logger) *mariadb.MariaDBSyncer {
 	return mariadb.NewMariaDBSyncer(cfg, logger)
+}
+
+func NewPostgreSQLSyncer(cfg config.SyncConfig, logger *logrus.Logger) *postgresql.PostgreSQLSyncer {
+	return postgresql.NewPostgreSQLSyncer(cfg, logger)
 }
