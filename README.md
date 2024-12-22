@@ -12,19 +12,18 @@ Synchronize Production NOSQL and SQL data to Standalone instances for Data scien
 - MariaDB (TBD)
 - PgSQL (TBD)
 
-## High Level Architecture
+## High Level Design Diagram
 
-### MongoDB sync
+### MongoDB sync (usual)
 ![image](https://github.com/user-attachments/assets/f600c3ae-a6bf-4d64-9a7b-6715456a146b)
 
-### Shard mongodb sync
+### MongoDB sync (shard or replica set)
 
 ![image](https://github.com/user-attachments/assets/82cd3811-44bf-4d44-8ac8-9f32aace7a83)
 
-### MySQL
-![image](https://github.com/user-attachments/assets/f8a029b6-5185-487e-9d41-d183dca487fc)
+### MySQL or MariaDB
 
-
+![image](https://github.com/user-attachments/assets/65b23a4c-56db-4833-89a1-0f802af878bd)
 
 ## Features
 
