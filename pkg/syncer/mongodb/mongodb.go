@@ -353,18 +353,18 @@ func (s *MongoDBSyncer) flushBuffer(ctx context.Context, targetColl *mongo.Colle
 	}
 
 	// Log buffer contents before flush
-	for i, wm := range *buffer {
-		switch m := wm.(type) {
-		case *mongo.InsertOneModel:
-			s.logger.Infof("WriteModel %d: InsertOneModel - Document: %+v", i+1, m.Document)
-		case *mongo.ReplaceOneModel:
-			s.logger.Infof("WriteModel %d: ReplaceOneModel - Filter: %+v, Replacement: %+v", i+1, m.Filter, m.Replacement)
-		case *mongo.DeleteOneModel:
-			s.logger.Infof("WriteModel %d: DeleteOneModel - Filter: %+v", i+1, m.Filter)
-		default:
-			s.logger.Infof("WriteModel %d: Unknown type", i+1)
-		}
-	}
+	// for i, wm := range *buffer {
+	// 	switch m := wm.(type) {
+	// 	case *mongo.InsertOneModel:
+	// 		s.logger.Infof("WriteModel %d: InsertOneModel - Document: %+v", i+1, m.Document)
+	// 	case *mongo.ReplaceOneModel:
+	// 		s.logger.Infof("WriteModel %d: ReplaceOneModel - Filter: %+v, Replacement: %+v", i+1, m.Filter, m.Replacement)
+	// 	case *mongo.DeleteOneModel:
+	// 		s.logger.Infof("WriteModel %d: DeleteOneModel - Filter: %+v", i+1, m.Filter)
+	// 	default:
+	// 		s.logger.Infof("WriteModel %d: Unknown type", i+1)
+	// 	}
+	// }
 
 	opts := options.BulkWrite().SetOrdered(false)
 	result, err := targetColl.BulkWrite(ctx, *buffer, opts)
