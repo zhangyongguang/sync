@@ -171,7 +171,7 @@ On restart, the tool resumes from the stored state (resume token for MongoDB, bi
 
 - MongoDB: MongoDB Change Streams require a replica set or sharded cluster. See [Convert Standalone to Replica Set](https://www.mongodb.com/docs/manual/tutorial/convert-standalone-to-replica-set/).
 - MySQL/MariaDB: MySQL/MariaDB binlog-based incremental sync requires ROW or MIXED binlog format for proper event capturing.
-- PostgreSQL incremental sync requires logical replication enabled with a replication slot and the wal2json plugin installed.
+- PostgreSQL incremental sync requires logical replication enabled with a replication slot and [the wal2json plugin installed](https://github.com/eulerto/wal2json?tab=readme-ov-file#build-and-install).
 
 ## Contributing
 Contributions are welcome! Please fork the repository, make changes, and submit a pull request.
