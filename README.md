@@ -36,7 +36,7 @@ Synchronize Production NOSQL and SQL data to Standalone instances for Data scien
   - MySQL/MariaDB: Uses binlog replication events to capture and apply incremental changes to the target.
   - PostgreSQL: Uses WAL (Write-Ahead Log) with the wal2json plugin to capture and apply incremental changes to the target.
 - **Batch Processing & Concurrency**:  
-  Handles synchronization in batches for optimized performance, and supports parallel synchronization for multiple collections/tables.
+  Handles synchronization in batches for optimized performance and supports parallel synchronization for multiple collections/tables.
 - **Restart Resilience**: 
   Stores MongoDB resume tokens, MySQL binlog positions, and PostgreSQL replication positions in configurable state files, allowing the tool to resume synchronization from the last known position after a restart.
 
@@ -49,7 +49,7 @@ Synchronize Production NOSQL and SQL data to Standalone instances for Data scien
   - A target MySQL or MariaDB instance with write permissions.
 - For PostgreSQL sources:
   - A PostgreSQL instance with logical replication enabled and a replication slot created.
-  - The wal2json plugin installed and configured on the PostgreSQL source.
+  - The wal2json plugin is installed and configured on the PostgreSQL source.
   - A target PostgreSQL instance with write permissions.
 
 ## Quick start
@@ -65,19 +65,19 @@ tar -xzf sync.tar.gz
 ## Installation(For development)
 
 ```
-# 1.Clone the repository:
+# 1. Clone the repository:
 git clone https://github.com/retail-ai-inc/sync.git
 cd sync
 
-# 2.Install dependencies
+# 2. Install dependencies
 go mod tidy
 
-# 3.Build the binary
+# 3. Build the binary
 cp configs/config.sample.yaml configs/config.yaml
 # Edit config.yaml to replace the placeholders with your instance details.
 go build -o sync cmd/sync/main.go
 
-# 4.Build the Docker image
+# 4. Build the Docker image
 docker build -t sync .
 docker run -v $(pwd)/configs/config.yaml:/app/configs/config.yaml sync
 ```
@@ -86,7 +86,7 @@ docker run -v $(pwd)/configs/config.yaml:/app/configs/config.yaml sync
 
 
 The config.yaml defines multiple sync tasks. Each sync task specifies:  
-- Multi Mappings Config: sync supports multiple mappings per source, allowing you to replicate data from multiple databases or schemas to one or more target databases/schemas simultaneously. 
+- Multi Mappings Config: sync supports multiple mappings per source, allowing you to simultaneously replicate data from multiple databases or schemas to one or more target databases/schemas. 
 - Type of Source (mongodb, mysql, mariadb, postgresql).
 - Source and target connection strings.
 - Database/table or collection mappings.
@@ -165,7 +165,7 @@ sync_configs:
 - MySQL/MariaDB: Uses binlog replication to apply incremental changes to the target.
 - PostgreSQL: Uses WAL (Write-Ahead Log) with the wal2json plugin to apply incremental changes to the target.
 
-On restart, the tool resumes from the stored state (resume token for MongoDB, binlog position for MySQL/MariaDB, replication slot for PostgreSQL).
+On the restart, the tool resumes from the stored state (resume token for MongoDB, binlog position for MySQL/MariaDB, replication slot for PostgreSQL).
 
 ## Availability  
 
