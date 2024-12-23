@@ -5,7 +5,11 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"net/url"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,12 +25,15 @@ import (
 type PostgreSQLSyncer struct {
 	cfg              config.SyncConfig
 	logger           *logrus.Logger
-	sourceConnNormal *pgx.Conn      // 普通连接，用于初始全量同步SQL查询
-	sourceConnRepl   *pgconn.PgConn // 复制模式连接，用于IdentifySystem和StartReplication等
+	sourceConnNormal *pgx.Conn
+	sourceConnRepl   *pgconn.PgConn
 	targetDB         *sql.DB
 	repSlot          string
 	outputPlugin     string
 	currentLsn       pglogrepl.LSN
+
+	positionSaverTicker *time.Ticker
+	cancelPositionSaver context.CancelFunc
 }
 
 func NewPostgreSQLSyncer(cfg config.SyncConfig, logger *logrus.Logger) *PostgreSQLSyncer {
@@ -39,14 +46,14 @@ func NewPostgreSQLSyncer(cfg config.SyncConfig, logger *logrus.Logger) *PostgreS
 func (s *PostgreSQLSyncer) Start(ctx context.Context) {
 	var err error
 
-	// 建立普通模式连接，用于初始同步查询
+	// Establish normal mode connection for initial sync queries
 	s.sourceConnNormal, err = pgx.Connect(ctx, s.cfg.SourceConnection)
 	if err != nil {
 		s.logger.Fatalf("Failed to connect to PostgreSQL source (normal): %v", err)
 	}
 	defer s.sourceConnNormal.Close(ctx)
 
-	// 为复制模式连接构造 DSN
+	// Build DSN for replication mode
 	replDSN, err := s.buildReplicationDSN(s.cfg.SourceConnection)
 	if err != nil {
 		s.logger.Fatalf("Failed to build replication DSN: %v", err)
@@ -58,7 +65,7 @@ func (s *PostgreSQLSyncer) Start(ctx context.Context) {
 	}
 	defer s.sourceConnRepl.Close(ctx)
 
-	// 建立目标数据库连接
+	// Establish target database connection
 	s.targetDB, err = sql.Open("postgres", s.cfg.TargetConnection)
 	if err != nil {
 		s.logger.Fatalf("Failed to connect to PostgreSQL target: %v", err)
@@ -76,18 +83,135 @@ func (s *PostgreSQLSyncer) Start(ctx context.Context) {
 		s.logger.Fatalf("Failed to ensure replication slot: %v", err)
 	}
 
+	// If we have PGPositionPath, try to load LSN from it
+	if s.cfg.PGPositionPath != "" {
+		lsnFromFile, err := s.loadPosition(s.cfg.PGPositionPath)
+		if err == nil && lsnFromFile > 0 {
+			s.logger.Infof("Loaded last LSN from file: %X", lsnFromFile)
+			s.currentLsn = lsnFromFile
+		}
+	}
+
 	err = s.initialSync(ctx)
 	if err != nil {
 		s.logger.Errorf("Initial sync failed: %v", err)
 	}
 
+	// Start the position saver goroutine
+	ctxPos, cancelPos := context.WithCancel(ctx)
+	s.cancelPositionSaver = cancelPos
+	s.positionSaverTicker = time.NewTicker(3 * time.Second)
+	go s.runPositionSaver(ctxPos, s.cfg.PGPositionPath)
+
 	err = s.startLogicalReplication(ctx)
 	if err != nil {
 		s.logger.Errorf("Logical replication failed: %v", err)
+		// Stop position saver upon error
+		s.stopPositionSaver()
 		return
 	}
 
+	s.stopPositionSaver()
 	s.logger.Info("All synchronization tasks have completed.")
+}
+
+func (s *PostgreSQLSyncer) stopPositionSaver() {
+	if s.positionSaverTicker != nil {
+		s.positionSaverTicker.Stop()
+	}
+	if s.cancelPositionSaver != nil {
+		s.cancelPositionSaver()
+	}
+}
+
+func (s *PostgreSQLSyncer) runPositionSaver(ctx context.Context, path string) {
+	if path == "" {
+		return
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-s.positionSaverTicker.C:
+			// Save current LSN
+			err := s.savePosition(path, s.currentLsn)
+			if err != nil {
+				s.logger.Errorf("Failed to save position to %s: %v", path, err)
+			} else {
+				// s.logger.Infof("Position saved: %X", s.currentLsn)
+			}
+		}
+	}
+}
+
+func (s *PostgreSQLSyncer) savePosition(path string, lsn pglogrepl.LSN) error {
+	positionDir := filepath.Dir(path)
+	if err := os.MkdirAll(positionDir, os.ModePerm); err != nil {
+		return fmt.Errorf("Failed to create directory for PG position file %s: %v", path, err)
+	}
+	data, err := json.Marshal(lsn.String())
+	if err != nil {
+		return fmt.Errorf("Failed to marshal LSN: %v", err)
+	}
+	return ioutil.WriteFile(path, data, 0644)
+}
+
+func (s *PostgreSQLSyncer) loadPosition(path string) (pglogrepl.LSN, error) {
+	data, err := ioutil.ReadFile(path)
+	if err != nil {
+		return 0, err
+	}
+	if len(data) <= 1 {
+		return 0, fmt.Errorf("empty position file")
+	}
+	var lsnStr string
+	err = json.Unmarshal(data, &lsnStr)
+	if err != nil {
+		return 0, err
+	}
+	lsn, err := parseLSNFromString(lsnStr)
+	if err != nil {
+		return 0, err
+	}
+	return lsn, nil
+}
+
+func parseLSNFromString(lsnStr string) (pglogrepl.LSN, error) {
+	// LSN format is hex, e.g. "0/1713BD0"
+	parts := strings.Split(lsnStr, "/")
+	if len(parts) != 2 {
+		return 0, fmt.Errorf("invalid LSN format: %s", lsnStr)
+	}
+	hiPart := parts[0]
+	loPart := parts[1]
+
+	// hi, err := hex.DecodeString(hiPart)
+	// if err != nil {
+	// 	return 0, err
+	// }
+	// lo, err := hex.DecodeString(loPart)
+	// if err != nil {
+	// 	return 0, err
+	// }
+
+	// LSN=uint64=(uint64(hiVal)<<32 + loVal)
+	hiVal, err := hexStrToUint32(hiPart)
+	if err != nil {
+		return 0, err
+	}
+	loVal, err := hexStrToUint32(loPart)
+	if err != nil {
+		return 0, err
+	}
+	return pglogrepl.LSN(uint64(hiVal)<<32 + uint64(loVal)), nil
+}
+
+func hexStrToUint32(s string) (uint32, error) {
+	val, err := strconv.ParseUint(s, 16, 32)
+	if err != nil {
+		return 0, err
+	}
+	return uint32(val), nil
 }
 
 func (s *PostgreSQLSyncer) buildReplicationDSN(normalDSN string) (string, error) {
@@ -119,7 +243,9 @@ func (s *PostgreSQLSyncer) ensureReplicationSlot(ctx context.Context) error {
 			return fmt.Errorf("CreateReplicationSlot failed: %v", err)
 		} else {
 			s.logger.Infof("Replication slot %s already exists, use IdentifySystem XLogPos as start.", s.repSlot)
-			s.currentLsn = xLogPos
+			if s.currentLsn == 0 {
+				s.currentLsn = xLogPos
+			}
 			return nil
 		}
 	}
@@ -129,11 +255,13 @@ func (s *PostgreSQLSyncer) ensureReplicationSlot(ctx context.Context) error {
 		return fmt.Errorf("Failed to parse ConsistentPoint %s: %v", slotRes.ConsistentPoint, err)
 	}
 	s.logger.Infof("Created replication slot %s at LSN %X", s.repSlot, lsn)
-	s.currentLsn = lsn
+	if s.currentLsn == 0 {
+		s.currentLsn = lsn
+	}
 	return nil
 }
 
-// initialSync现在使用 source_database, source_schema, source_table 来构造查询
+// initialSync now uses source_database, source_schema, source_table to build queries
 func (s *PostgreSQLSyncer) initialSync(ctx context.Context) error {
 	s.logger.Info("Starting initial full sync")
 
@@ -257,7 +385,7 @@ func (s *PostgreSQLSyncer) startLogicalReplication(ctx context.Context) error {
 
 			msg, ok := rawMsg.(*pgproto3.CopyData)
 			if !ok {
-				// 非复制数据消息，忽略
+				// Ignore non-replication data
 				continue
 			}
 
@@ -267,8 +395,8 @@ func (s *PostgreSQLSyncer) startLogicalReplication(ctx context.Context) error {
 				if err != nil {
 					return fmt.Errorf("ParsePrimaryKeepaliveMessage failed: %v", err)
 				}
-				s.logger.Infof("PrimaryKeepaliveMessage ServerWALEnd=%s ServerTime=%s ReplyRequested=%t",
-					pkm.ServerWALEnd, pkm.ServerTime, pkm.ReplyRequested)
+				// s.logger.Infof("PrimaryKeepaliveMessage ServerWALEnd=%s ServerTime=%s ReplyRequested=%t",
+				// 	pkm.ServerWALEnd, pkm.ServerTime, pkm.ReplyRequested)
 				if pkm.ServerWALEnd > s.currentLsn {
 					s.currentLsn = pkm.ServerWALEnd
 				}
@@ -294,6 +422,13 @@ func (s *PostgreSQLSyncer) startLogicalReplication(ctx context.Context) error {
 				if err != nil {
 					s.logger.Errorf("handleWalData error: %v", err)
 				}
+				// Save latest LSN immediately after handling each XLogData
+				if s.cfg.PGPositionPath != "" {
+					saveErr := s.savePosition(s.cfg.PGPositionPath, s.currentLsn)
+					if saveErr != nil {
+						s.logger.Errorf("Failed to save position immediately: %v", saveErr)
+					}
+				}
 
 			default:
 				s.logger.Warnf("Unknown replication message type: %v", msg.Data[0])
@@ -302,7 +437,7 @@ func (s *PostgreSQLSyncer) startLogicalReplication(ctx context.Context) error {
 	}
 }
 
-// handleWalData根据事件中的schema和table从mappings中匹配database, schema, table
+// handleWalData matches database, schema, and table from the event's schema and table in mappings
 func (s *PostgreSQLSyncer) handleWalData(ctx context.Context, walData []byte) error {
 	var payload map[string]interface{}
 	if err := json.Unmarshal(walData, &payload); err != nil {
@@ -315,7 +450,6 @@ func (s *PostgreSQLSyncer) handleWalData(ctx context.Context, walData []byte) er
 		return nil
 	}
 
-	// 不再使用 getSourceDBFromConn()作为匹配，直接从mappings中寻找对应schema和table进行匹配
 	for _, c := range changeList {
 		entry, ok := c.(map[string]interface{})
 		if !ok {
@@ -327,10 +461,9 @@ func (s *PostgreSQLSyncer) handleWalData(ctx context.Context, walData []byte) er
 
 		var mappedDB, mappedSchema, mappedTable string
 		found := false
-		// 在mappings中匹配
+		// Match in mappings
 		for _, m := range s.cfg.Mappings {
 			if m.SourceDatabase != "" && m.SourceSchema != "" {
-				// 若配置有明确的source_schema, source_table
 				for _, tblMap := range m.Tables {
 					if m.SourceSchema == schema && tblMap.SourceTable == table {
 						mappedDB = m.TargetDatabase

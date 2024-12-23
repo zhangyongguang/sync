@@ -34,6 +34,7 @@ type SyncConfig struct {
 	MongoDBResumeTokenPath string            `yaml:"mongodb_resume_token_path,omitempty"`
 	PGReplicationSlotName  string            `yaml:"pg_replication_slot,omitempty"`
 	PGPluginName           string            `yaml:"pg_plugin,omitempty"`
+	PGPositionPath         string            `yaml:"pg_position_path,omitempty"` // New field to store LSN position
 }
 
 type Config struct {
