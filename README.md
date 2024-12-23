@@ -56,7 +56,7 @@ Synchronize Production NOSQL and SQL data to Standalone instances for Data scien
 
 This is a demo for macOS on amd64. For other operating systems and architectures, you need to replace the download link with the appropriate binary URL for your system.
 ```
-curl -L -o sync.tar.gz https://github.com/retail-ai-inc/sync/releases/download/v1.1/sync_1.1_darwin_amd64.tar.gz
+curl -L -o sync.tar.gz https://github.com/retail-ai-inc/sync/releases/download/v2.0.1/sync_2.0.1_darwin_amd64.tar.gz
 tar -xzf sync.tar.gz
 # Edit configs/config.yaml to replace the placeholders with your instance details.
 ./sync
