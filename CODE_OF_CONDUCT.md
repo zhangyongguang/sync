@@ -7,7 +7,7 @@ We aim to foster a helpful and empowering environment for all, regardless of lev
 This code of conduct applies to all aspects of our development and works, including, but not limited to:
 
 - Online platforms (social media, chatrooms, mailing lists).
-- In-person events (meetings, social gatherings, business trips, conferences, camps).
+- In-person events (meetings, social gatherings, trips, conferences, camps).
 - One-on-one communications.
 - Open source projects.
 - Internal, external, and public project spaces.
@@ -21,7 +21,7 @@ The CoC also extends to behavior outside of these spaces if it can affect and ma
 - Respect that people have differences of opinion and that every design or implementation choice carries a trade-off and numerous costs. There is seldom a correct answer.
 - Look out for each other.
 - Please keep unstructured critique to a minimum. If you have solid ideas you want to experiment with, make a PoC or fork and see how it works.
-- Focusing on what is best for the project & community
+- Focusing on what is best for the project & community.
 - We do not believe that all conflict is bad; healthy debate and disagreement often yield positive results. However, being disrespectful or engaging in behavior that violates the project’s CoC is never okay.
 
 ## Unacceptable Behavior
