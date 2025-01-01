@@ -174,4 +174,6 @@ On the restart, the tool resumes from the stored state (resume token for MongoDB
 - PostgreSQL incremental sync requires logical replication enabled with a replication slot and [the wal2json plugin installed](https://github.com/eulerto/wal2json?tab=readme-ov-file#build-and-install).
 
 ## Contributing
-Contributions are welcome! Please fork the repository, make changes, and submit a pull request.
+
+We encourage all contributions to this repository! Please fork the repository or open an issue, make changes, and submit a pull request.
+Note: All interactions here should conform to the [Code of Conduct](https://github.com/retail-ai-inc/sync/blob/main/CODE_OF_CONDUCT.md).
