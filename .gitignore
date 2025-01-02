@@ -48,7 +48,8 @@ deploy/
 
 # Ignore config file
 env.json
-config*.yaml
+config_*.yaml
+config.yaml
 config.json
 .DS_Store
 .goreleaser.yaml

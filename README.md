@@ -110,6 +110,7 @@ The `config.yaml` defines multiple sync tasks. Each sync task specifies:
 
 ```yaml
 enable_table_row_count_monitoring: true
+log_level: "info"  # Optional values: "debug", "info", "warn", "error", "fatal", "panic"
 
 sync_configs:
   - type: "mongodb"
