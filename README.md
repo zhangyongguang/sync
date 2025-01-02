@@ -39,6 +39,11 @@ Synchronize Production NOSQL and SQL data to Standalone instances for Data scien
   Handles synchronization in batches for optimized performance and supports parallel synchronization for multiple collections/tables.
 - **Restart Resilience**: 
   Stores MongoDB resume tokens, MySQL binlog positions, and PostgreSQL replication positions in configurable state files, allowing the tool to resume synchronization from the last known position after a restart.
+- **Grafana Integration**:
+  - For data visualization, this tool integrates with **Grafana** using data from **GCP Logging** and **GCP BigQuery**.
+  - When **`enable_table_row_count_monitoring`** is enabled, the tool records data changes, including table row counts, in **GCP Logging**.
+  - These logs are then forwarded via **Log Router** to **GCP BigQuery**.<br>Finally, **Grafana** is used to visualize this data, providing users with insights into the synchronization process.
+  - This integration is part of a temporary transition phase, and future development will focus on using a more flexible database solution for direct display and synchronization.
 
 ## Prerequisites
 - For MongoDB sources:
