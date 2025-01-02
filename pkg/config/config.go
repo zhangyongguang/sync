@@ -38,8 +38,9 @@ type SyncConfig struct {
 }
 
 type Config struct {
-	SyncConfigs []SyncConfig   `yaml:"sync_configs"`
-	Logger      *logrus.Logger `yaml:"-"`
+	EnableTableRowCountMonitoring bool           `yaml:"enable_table_row_count_monitoring,omitempty"`
+	SyncConfigs                   []SyncConfig   `yaml:"sync_configs"`
+	Logger                        *logrus.Logger `yaml:"-"`
 }
 
 func NewConfig() *Config {

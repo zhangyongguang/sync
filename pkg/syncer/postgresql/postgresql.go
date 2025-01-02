@@ -17,7 +17,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
-	_ "github.com/lib/pq" // PostgreSQL driver
+	_ "github.com/lib/pq"
 	"github.com/retail-ai-inc/sync/pkg/config"
 	"github.com/sirupsen/logrus"
 )
@@ -46,58 +46,53 @@ func NewPostgreSQLSyncer(cfg config.SyncConfig, logger *logrus.Logger) *PostgreS
 func (s *PostgreSQLSyncer) Start(ctx context.Context) {
 	var err error
 
-	// Establish normal mode connection for initial sync queries
 	s.sourceConnNormal, err = pgx.Connect(ctx, s.cfg.SourceConnection)
 	if err != nil {
-		s.logger.Fatalf("Failed to connect to PostgreSQL source (normal): %v", err)
+		s.logger.Fatalf("[PostgreSQL] Failed to connect to source (normal): %v", err)
 	}
 	defer s.sourceConnNormal.Close(ctx)
 
-	// Build DSN for replication mode
 	replDSN, err := s.buildReplicationDSN(s.cfg.SourceConnection)
 	if err != nil {
-		s.logger.Fatalf("Failed to build replication DSN: %v", err)
+		s.logger.Fatalf("[PostgreSQL] Failed to build replication DSN: %v", err)
 	}
 
 	s.sourceConnRepl, err = pgconn.Connect(ctx, replDSN)
 	if err != nil {
-		s.logger.Fatalf("Failed to connect to PostgreSQL source (replication): %v", err)
+		s.logger.Fatalf("[PostgreSQL] Failed to connect to source (replication): %v", err)
 	}
 	defer s.sourceConnRepl.Close(ctx)
 
-	// Establish target database connection
 	s.targetDB, err = sql.Open("postgres", s.cfg.TargetConnection)
 	if err != nil {
-		s.logger.Fatalf("Failed to connect to PostgreSQL target: %v", err)
+		s.logger.Fatalf("[PostgreSQL] Failed to connect to target: %v", err)
 	}
 	defer s.targetDB.Close()
 
 	s.repSlot = s.cfg.PGReplicationSlot()
 	s.outputPlugin = s.cfg.PGPlugin()
 	if s.repSlot == "" || s.outputPlugin == "" {
-		s.logger.Fatalf("PostgreSQL sync config must specify pg_replication_slot and pg_plugin")
+		s.logger.Fatalf("[PostgreSQL] Must specify pg_replication_slot and pg_plugin")
 	}
 
 	err = s.ensureReplicationSlot(ctx)
 	if err != nil {
-		s.logger.Fatalf("Failed to ensure replication slot: %v", err)
+		s.logger.Fatalf("[PostgreSQL] Failed to ensure replication slot: %v", err)
 	}
 
-	// If we have PGPositionPath, try to load LSN from it
 	if s.cfg.PGPositionPath != "" {
 		lsnFromFile, err := s.loadPosition(s.cfg.PGPositionPath)
 		if err == nil && lsnFromFile > 0 {
-			s.logger.Infof("Loaded last LSN from file: %X", lsnFromFile)
+			s.logger.Infof("[PostgreSQL] Loaded last LSN from file: %X", lsnFromFile)
 			s.currentLsn = lsnFromFile
 		}
 	}
 
 	err = s.initialSync(ctx)
 	if err != nil {
-		s.logger.Errorf("Initial sync failed: %v", err)
+		s.logger.Errorf("[PostgreSQL] Initial sync failed: %v", err)
 	}
 
-	// Start the position saver goroutine
 	ctxPos, cancelPos := context.WithCancel(ctx)
 	s.cancelPositionSaver = cancelPos
 	s.positionSaverTicker = time.NewTicker(3 * time.Second)
@@ -105,14 +100,13 @@ func (s *PostgreSQLSyncer) Start(ctx context.Context) {
 
 	err = s.startLogicalReplication(ctx)
 	if err != nil {
-		s.logger.Errorf("Logical replication failed: %v", err)
-		// Stop position saver upon error
+		s.logger.Errorf("[PostgreSQL] Logical replication failed: %v", err)
 		s.stopPositionSaver()
 		return
 	}
 
 	s.stopPositionSaver()
-	s.logger.Info("All synchronization tasks have completed.")
+	s.logger.Info("[PostgreSQL] Synchronization tasks completed.")
 }
 
 func (s *PostgreSQLSyncer) stopPositionSaver() {
@@ -133,12 +127,9 @@ func (s *PostgreSQLSyncer) runPositionSaver(ctx context.Context, path string) {
 		case <-ctx.Done():
 			return
 		case <-s.positionSaverTicker.C:
-			// Save current LSN
 			err := s.savePosition(path, s.currentLsn)
 			if err != nil {
-				s.logger.Errorf("Failed to save position to %s: %v", path, err)
-			} else {
-				// s.logger.Infof("Position saved: %X", s.currentLsn)
+				s.logger.Errorf("[PostgreSQL] Failed to save position: %v", err)
 			}
 		}
 	}
@@ -147,11 +138,11 @@ func (s *PostgreSQLSyncer) runPositionSaver(ctx context.Context, path string) {
 func (s *PostgreSQLSyncer) savePosition(path string, lsn pglogrepl.LSN) error {
 	positionDir := filepath.Dir(path)
 	if err := os.MkdirAll(positionDir, os.ModePerm); err != nil {
-		return fmt.Errorf("Failed to create directory for PG position file %s: %v", path, err)
+		return fmt.Errorf("[PostgreSQL] failed to create directory %s: %v", path, err)
 	}
 	data, err := json.Marshal(lsn.String())
 	if err != nil {
-		return fmt.Errorf("Failed to marshal LSN: %v", err)
+		return fmt.Errorf("[PostgreSQL] failed to marshal LSN: %v", err)
 	}
 	return ioutil.WriteFile(path, data, 0644)
 }
@@ -177,29 +168,15 @@ func (s *PostgreSQLSyncer) loadPosition(path string) (pglogrepl.LSN, error) {
 }
 
 func parseLSNFromString(lsnStr string) (pglogrepl.LSN, error) {
-	// LSN format is hex, e.g. "0/1713BD0"
 	parts := strings.Split(lsnStr, "/")
 	if len(parts) != 2 {
 		return 0, fmt.Errorf("invalid LSN format: %s", lsnStr)
 	}
-	hiPart := parts[0]
-	loPart := parts[1]
-
-	// hi, err := hex.DecodeString(hiPart)
-	// if err != nil {
-	// 	return 0, err
-	// }
-	// lo, err := hex.DecodeString(loPart)
-	// if err != nil {
-	// 	return 0, err
-	// }
-
-	// LSN=uint64=(uint64(hiVal)<<32 + loVal)
-	hiVal, err := hexStrToUint32(hiPart)
+	hiVal, err := hexStrToUint32(parts[0])
 	if err != nil {
 		return 0, err
 	}
-	loVal, err := hexStrToUint32(loPart)
+	loVal, err := hexStrToUint32(parts[1])
 	if err != nil {
 		return 0, err
 	}
@@ -219,11 +196,9 @@ func (s *PostgreSQLSyncer) buildReplicationDSN(normalDSN string) (string, error)
 	if err != nil {
 		return "", err
 	}
-
 	q := u.Query()
 	q.Set("replication", "database")
 	u.RawQuery = q.Encode()
-
 	return u.String(), nil
 }
 
@@ -235,14 +210,14 @@ func (s *PostgreSQLSyncer) ensureReplicationSlot(ctx context.Context) error {
 	systemID := identifyResp.SystemID
 	timeline := identifyResp.Timeline
 	xLogPos := identifyResp.XLogPos
-	s.logger.Infof("IdentifySystem: systemID=%s timeline=%d xLogPos=%X", systemID, timeline, xLogPos)
+	s.logger.Infof("[PostgreSQL] IdentifySystem: systemID=%s timeline=%d xLogPos=%X", systemID, timeline, xLogPos)
 
 	slotRes, err := pglogrepl.CreateReplicationSlot(ctx, s.sourceConnRepl, s.repSlot, s.outputPlugin, pglogrepl.CreateReplicationSlotOptions{Temporary: false})
 	if err != nil {
 		if !strings.Contains(err.Error(), "already exists") {
 			return fmt.Errorf("CreateReplicationSlot failed: %v", err)
 		} else {
-			s.logger.Infof("Replication slot %s already exists, use IdentifySystem XLogPos as start.", s.repSlot)
+			s.logger.Infof("[PostgreSQL] Replication slot %s already exists. Using XLogPos as start if not loaded.", s.repSlot)
 			if s.currentLsn == 0 {
 				s.currentLsn = xLogPos
 			}
@@ -254,16 +229,15 @@ func (s *PostgreSQLSyncer) ensureReplicationSlot(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("Failed to parse ConsistentPoint %s: %v", slotRes.ConsistentPoint, err)
 	}
-	s.logger.Infof("Created replication slot %s at LSN %X", s.repSlot, lsn)
+	s.logger.Infof("[PostgreSQL] Created replication slot %s at LSN %X", s.repSlot, lsn)
 	if s.currentLsn == 0 {
 		s.currentLsn = lsn
 	}
 	return nil
 }
 
-// initialSync now uses source_database, source_schema, source_table to build queries
 func (s *PostgreSQLSyncer) initialSync(ctx context.Context) error {
-	s.logger.Info("Starting initial full sync")
+	s.logger.Info("[PostgreSQL] Starting initial full sync")
 
 	for _, dbmap := range s.cfg.Mappings {
 		sourceDB := dbmap.SourceDatabase
@@ -283,7 +257,7 @@ func (s *PostgreSQLSyncer) initialSync(ctx context.Context) error {
 
 			rows, err := s.sourceConnNormal.Query(ctx, query)
 			if err != nil {
-				return fmt.Errorf("Failed to query source table %s: %v", sourceTableFull, err)
+				return fmt.Errorf("[PostgreSQL] Failed to query source table %s: %v", sourceTableFull, err)
 			}
 
 			cols := rows.FieldDescriptions()
@@ -305,7 +279,7 @@ func (s *PostgreSQLSyncer) initialSync(ctx context.Context) error {
 			tx, err := s.targetDB.Begin()
 			if err != nil {
 				rows.Close()
-				return fmt.Errorf("Failed to begin tx for initial sync: %v", err)
+				return fmt.Errorf("[PostgreSQL] Failed to begin tx for initial sync: %v", err)
 			}
 
 			count := 0
@@ -314,13 +288,13 @@ func (s *PostgreSQLSyncer) initialSync(ctx context.Context) error {
 				if err != nil {
 					tx.Rollback()
 					rows.Close()
-					return fmt.Errorf("Failed to get row values from %s: %v", sourceTableFull, err)
+					return fmt.Errorf("[PostgreSQL] Failed to get row values from %s: %v", sourceTableFull, err)
 				}
 				_, err = tx.Exec(insertSQL, vals...)
 				if err != nil {
 					tx.Rollback()
 					rows.Close()
-					return fmt.Errorf("Failed to insert row into %s.%s.%s: %v",
+					return fmt.Errorf("[PostgreSQL] Insert row into %s.%s.%s error: %v",
 						targetDB, targetSchema, tblmap.TargetTable, err)
 				}
 				count++
@@ -329,24 +303,24 @@ func (s *PostgreSQLSyncer) initialSync(ctx context.Context) error {
 
 			if err := rows.Err(); err != nil {
 				tx.Rollback()
-				return fmt.Errorf("Rows error from %s: %v", sourceTableFull, err)
+				return fmt.Errorf("[PostgreSQL] Rows error from %s: %v", sourceTableFull, err)
 			}
 
 			if err = tx.Commit(); err != nil {
-				return fmt.Errorf("Failed to commit tx for initial sync on %s.%s.%s: %v",
+				return fmt.Errorf("[PostgreSQL] Failed to commit tx for %s.%s.%s: %v",
 					targetDB, targetSchema, tblmap.TargetTable, err)
 			}
 
-			s.logger.Infof("Initial sync of %s to %s.%s.%s completed, inserted %d rows.",
+			s.logger.Infof("[PostgreSQL] Initial sync of %s to %s.%s.%s inserted %d rows",
 				sourceTableFull, targetDB, targetSchema, tblmap.TargetTable, count)
 		}
 	}
-	s.logger.Info("Initial full sync completed")
+	s.logger.Info("[PostgreSQL] Initial full sync completed")
 	return nil
 }
 
 func (s *PostgreSQLSyncer) startLogicalReplication(ctx context.Context) error {
-	s.logger.Infof("Starting logical replication from slot: %s with plugin: %s", s.repSlot, s.outputPlugin)
+	s.logger.Infof("[PostgreSQL] Starting logical replication from slot: %s, plugin: %s", s.repSlot, s.outputPlugin)
 
 	err := pglogrepl.StartReplication(ctx, s.sourceConnRepl, s.repSlot, s.currentLsn, pglogrepl.StartReplicationOptions{})
 	if err != nil {
@@ -366,7 +340,7 @@ func (s *PostgreSQLSyncer) startLogicalReplication(ctx context.Context) error {
 				ReplyRequested:   false,
 			})
 			if err != nil {
-				s.logger.Errorf("SendStandbyStatusUpdate failed: %v", err)
+				s.logger.Errorf("[PostgreSQL] SendStandbyStatusUpdate failed: %v", err)
 			}
 		default:
 			ctxReceive, cancel := context.WithDeadline(ctx, time.Now().Add(1*time.Second))
@@ -376,16 +350,15 @@ func (s *PostgreSQLSyncer) startLogicalReplication(ctx context.Context) error {
 				if pgconn.Timeout(err) {
 					continue
 				}
-				return fmt.Errorf("ReceiveMessage failed: %v", err)
+				return fmt.Errorf("[PostgreSQL] ReceiveMessage failed: %v", err)
 			}
 
 			if errMsg, ok := rawMsg.(*pgproto3.ErrorResponse); ok {
-				return fmt.Errorf("received Postgres WAL error: %+v", errMsg)
+				return fmt.Errorf("[PostgreSQL] WAL error: %+v", errMsg)
 			}
 
 			msg, ok := rawMsg.(*pgproto3.CopyData)
 			if !ok {
-				// Ignore non-replication data
 				continue
 			}
 
@@ -393,10 +366,8 @@ func (s *PostgreSQLSyncer) startLogicalReplication(ctx context.Context) error {
 			case pglogrepl.PrimaryKeepaliveMessageByteID:
 				pkm, err := pglogrepl.ParsePrimaryKeepaliveMessage(msg.Data[1:])
 				if err != nil {
-					return fmt.Errorf("ParsePrimaryKeepaliveMessage failed: %v", err)
+					return fmt.Errorf("[PostgreSQL] ParsePrimaryKeepaliveMessage failed: %v", err)
 				}
-				// s.logger.Infof("PrimaryKeepaliveMessage ServerWALEnd=%s ServerTime=%s ReplyRequested=%t",
-				// 	pkm.ServerWALEnd, pkm.ServerTime, pkm.ReplyRequested)
 				if pkm.ServerWALEnd > s.currentLsn {
 					s.currentLsn = pkm.ServerWALEnd
 				}
@@ -406,47 +377,44 @@ func (s *PostgreSQLSyncer) startLogicalReplication(ctx context.Context) error {
 						ReplyRequested:   false,
 					})
 					if err != nil {
-						s.logger.Errorf("SendStandbyStatusUpdate failed: %v", err)
+						s.logger.Errorf("[PostgreSQL] SendStandbyStatusUpdate failed: %v", err)
 					}
 				}
 
 			case pglogrepl.XLogDataByteID:
 				xld, err := pglogrepl.ParseXLogData(msg.Data[1:])
 				if err != nil {
-					return fmt.Errorf("ParseXLogData failed: %v", err)
+					return fmt.Errorf("[PostgreSQL] ParseXLogData failed: %v", err)
 				}
 				if xld.WALStart > s.currentLsn {
 					s.currentLsn = xld.WALStart
 				}
 				err = s.handleWalData(ctx, xld.WALData)
 				if err != nil {
-					s.logger.Errorf("handleWalData error: %v", err)
+					s.logger.Errorf("[PostgreSQL] handleWalData error: %v", err)
 				}
-				// Save latest LSN immediately after handling each XLogData
 				if s.cfg.PGPositionPath != "" {
 					saveErr := s.savePosition(s.cfg.PGPositionPath, s.currentLsn)
 					if saveErr != nil {
-						s.logger.Errorf("Failed to save position immediately: %v", saveErr)
+						s.logger.Errorf("[PostgreSQL] Failed to save position: %v", saveErr)
 					}
 				}
 
 			default:
-				s.logger.Warnf("Unknown replication message type: %v", msg.Data[0])
+				s.logger.Warnf("[PostgreSQL] Unknown replication message type: %v", msg.Data[0])
 			}
 		}
 	}
 }
 
-// handleWalData matches database, schema, and table from the event's schema and table in mappings
 func (s *PostgreSQLSyncer) handleWalData(ctx context.Context, walData []byte) error {
 	var payload map[string]interface{}
 	if err := json.Unmarshal(walData, &payload); err != nil {
-		return fmt.Errorf("Failed to unmarshal wal2json output: %v", err)
+		return fmt.Errorf("Failed to unmarshal wal2json: %v", err)
 	}
 
 	changeList, ok := payload["change"].([]interface{})
 	if !ok {
-		// No changes
 		return nil
 	}
 
@@ -461,11 +429,11 @@ func (s *PostgreSQLSyncer) handleWalData(ctx context.Context, walData []byte) er
 
 		var mappedDB, mappedSchema, mappedTable string
 		found := false
-		// Match in mappings
+
 		for _, m := range s.cfg.Mappings {
-			if m.SourceDatabase != "" && m.SourceSchema != "" {
+			if m.SourceSchema == schema {
 				for _, tblMap := range m.Tables {
-					if m.SourceSchema == schema && tblMap.SourceTable == table {
+					if tblMap.SourceTable == table {
 						mappedDB = m.TargetDatabase
 						mappedSchema = m.TargetSchema
 						if mappedSchema == "" {
@@ -483,7 +451,7 @@ func (s *PostgreSQLSyncer) handleWalData(ctx context.Context, walData []byte) er
 		}
 
 		if !found {
-			s.logger.Warnf("No mapping found for source table %s.%s", schema, table)
+			s.logger.Warnf("[PostgreSQL] No mapping found for %s.%s", schema, table)
 			continue
 		}
 
@@ -492,28 +460,40 @@ func (s *PostgreSQLSyncer) handleWalData(ctx context.Context, walData []byte) er
 
 		switch kind {
 		case "insert":
-			s.handleInsert(mappedDB, mappedSchema, mappedTable, colNames, colValues)
+			s.handleInsert(schema, table, mappedDB, mappedSchema, mappedTable, colNames, colValues)
 		case "update":
 			oldKeys, _ := entry["oldkeys"].(map[string]interface{})
-			s.handleUpdate(mappedDB, mappedSchema, mappedTable, colNames, colValues, oldKeys)
+			s.handleUpdate(schema, table, mappedDB, mappedSchema, mappedTable, colNames, colValues, oldKeys)
 		case "delete":
 			oldKeys, _ := entry["oldkeys"].(map[string]interface{})
-			s.handleDelete(mappedDB, mappedSchema, mappedTable, oldKeys)
+			s.handleDelete(schema, table, mappedDB, mappedSchema, mappedTable, oldKeys)
 		}
 	}
 
 	return nil
 }
 
-func (s *PostgreSQLSyncer) handleInsert(dbName, schemaName, tableName string, colNames []interface{}, colValues []interface{}) {
-	s.insertOrUpdate(dbName, schemaName, tableName, colNames, colValues, false, nil)
+func (s *PostgreSQLSyncer) handleInsert(
+	srcSchema, srcTable, dstDB, dstSchema, dstTable string,
+	colNames []interface{},
+	colValues []interface{},
+) {
+	s.insertOrUpdate(srcSchema, srcTable, dstDB, dstSchema, dstTable, colNames, colValues, false, nil)
 }
 
-func (s *PostgreSQLSyncer) handleUpdate(dbName, schemaName, tableName string, colNames []interface{}, colValues []interface{}, oldKeys map[string]interface{}) {
-	s.insertOrUpdate(dbName, schemaName, tableName, colNames, colValues, true, oldKeys)
+func (s *PostgreSQLSyncer) handleUpdate(
+	srcSchema, srcTable, dstDB, dstSchema, dstTable string,
+	colNames []interface{},
+	colValues []interface{},
+	oldKeys map[string]interface{},
+) {
+	s.insertOrUpdate(srcSchema, srcTable, dstDB, dstSchema, dstTable, colNames, colValues, true, oldKeys)
 }
 
-func (s *PostgreSQLSyncer) handleDelete(dbName, schemaName, tableName string, oldKeys map[string]interface{}) {
+func (s *PostgreSQLSyncer) handleDelete(
+	srcSchema, srcTable, dstDB, dstSchema, dstTable string,
+	oldKeys map[string]interface{},
+) {
 	keyNames, _ := oldKeys["keynames"].([]interface{})
 	keyValues, _ := oldKeys["keyvalues"].([]interface{})
 
@@ -524,14 +504,21 @@ func (s *PostgreSQLSyncer) handleDelete(dbName, schemaName, tableName string, ol
 		args = append(args, keyValues[i])
 	}
 
-	query := fmt.Sprintf("DELETE FROM %s.%s WHERE %s", schemaName, tableName, strings.Join(whereClauses, " AND "))
+	query := fmt.Sprintf("DELETE FROM %s.%s WHERE %s", dstSchema, dstTable, strings.Join(whereClauses, " AND "))
 	_, err := s.targetDB.Exec(query, args...)
 	if err != nil {
-		s.logger.Errorf("PostgreSQL delete failed: %v", err)
+		s.logger.Errorf("[PostgreSQL] [DELETE] {src_schema: %s, src_table: %s} => {dst_db: %s, dst_schema: %s, dst_table: %s} Error: %v", srcSchema, srcTable, dstDB, dstSchema, dstTable, err)
+	} else {
+		s.logger.Infof("[PostgreSQL] [DELETE] {src_schema: %s, src_table: %s} => {dst_db: %s, dst_schema: %s, dst_table: %s} Key: %+v", srcSchema, srcTable, dstDB, dstSchema, dstTable, keyValues)
 	}
 }
 
-func (s *PostgreSQLSyncer) insertOrUpdate(dbName, schemaName, tableName string, colNames, colValues []interface{}, isUpdate bool, oldKeys map[string]interface{}) {
+func (s *PostgreSQLSyncer) insertOrUpdate(
+	srcSchema, srcTable, dstDB, dstSchema, dstTable string,
+	colNames, colValues []interface{},
+	isUpdate bool,
+	oldKeys map[string]interface{},
+) {
 	cols := make([]string, len(colNames))
 	placeholders := make([]string, len(colNames))
 	args := make([]interface{}, len(colValues))
@@ -540,15 +527,16 @@ func (s *PostgreSQLSyncer) insertOrUpdate(dbName, schemaName, tableName string, 
 		placeholders[i] = fmt.Sprintf("$%d", i+1)
 		args[i] = colValues[i]
 	}
+
 	if !isUpdate {
-		// insert
-		query := fmt.Sprintf("INSERT INTO %s.%s (%s) VALUES (%s)", schemaName, tableName, strings.Join(cols, ", "), strings.Join(placeholders, ", "))
+		query := fmt.Sprintf("INSERT INTO %s.%s (%s) VALUES (%s)", dstSchema, dstTable, strings.Join(cols, ", "), strings.Join(placeholders, ", "))
 		_, err := s.targetDB.Exec(query, args...)
 		if err != nil {
-			s.logger.Errorf("PostgreSQL insert failed: %v", err)
+			s.logger.Errorf("[PostgreSQL] [INSERT] {src_schema: %s, src_table: %s} => {dst_db: %s, dst_schema: %s, dst_table: %s} Error: %v", srcSchema, srcTable, dstDB, dstSchema, dstTable, err)
+		} else {
+			s.logger.Infof("[PostgreSQL] [INSERT] {src_schema: %s, src_table: %s} => {dst_db: %s, dst_schema: %s, dst_table: %s} Values: %+v", srcSchema, srcTable, dstDB, dstSchema, dstTable, colValues)
 		}
 	} else {
-		// update
 		setClauses := []string{}
 		for i, c := range cols {
 			setClauses = append(setClauses, fmt.Sprintf("%s = $%d", c, i+1))
@@ -562,10 +550,12 @@ func (s *PostgreSQLSyncer) insertOrUpdate(dbName, schemaName, tableName string, 
 			args = append(args, keyValues[i])
 		}
 
-		query := fmt.Sprintf("UPDATE %s.%s SET %s WHERE %s", schemaName, tableName, strings.Join(setClauses, ", "), strings.Join(whereClauses, " AND "))
+		query := fmt.Sprintf("UPDATE %s.%s SET %s WHERE %s", dstSchema, dstTable, strings.Join(setClauses, ", "), strings.Join(whereClauses, " AND "))
 		_, err := s.targetDB.Exec(query, args...)
 		if err != nil {
-			s.logger.Errorf("PostgreSQL update failed: %v", err)
+			s.logger.Errorf("[PostgreSQL] [UPDATE] {src_schema: %s, src_table: %s} => {dst_db: %s, dst_schema: %s, dst_table: %s} Error: %v", srcSchema, srcTable, dstDB, dstSchema, dstTable, err)
+		} else {
+			s.logger.Infof("[PostgreSQL] [UPDATE] {src_schema: %s, src_table: %s} => {dst_db: %s, dst_schema: %s, dst_table: %s} Old Keys: %+v, New Values: %+v", srcSchema, srcTable, dstDB, dstSchema, dstTable, keyValues, colValues)
 		}
 	}
 }

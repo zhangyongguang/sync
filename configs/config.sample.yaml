@@ -1,3 +1,5 @@
+enable_table_row_count_monitoring: true
+
 sync_configs:
   - type: "mongodb"
     enable: true
@@ -12,11 +14,6 @@ sync_configs:
             target_table: "target_table_1"
           - source_table: "source_table_2"
             target_table: "target_table_2"
-      - source_database: "source_db_2"
-        target_database: "target_db_2"
-        tables:
-          - source_table: "source_table_3"
-            target_table: "target_table_3"
 
   - type: "mysql"
     enable: true
@@ -31,12 +28,7 @@ sync_configs:
             target_table: "target_table_1"
           - source_table: "source_table_2"
             target_table: "target_table_2"
-      - source_database: "source_db_2"
-        target_database: "target_db_2"
-        tables:
-          - source_table: "source_table_3"
-            target_table: "target_table_3"
-    dump_execution_path: "/path/to/dump_tool"
+    dump_execution_path: "" # optional
 
   - type: "mariadb"
     enable: true
@@ -67,4 +59,4 @@ sync_configs:
           - source_table: "source_table_1"
             target_table: "target_table_1"
           - source_table: "source_table_2"
-            target_table: "target_table_2"    
+            target_table: "target_table_2"   

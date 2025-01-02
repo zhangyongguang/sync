@@ -82,28 +82,33 @@ docker build -t sync .
 docker run -v $(pwd)/configs/config.yaml:/app/configs/config.yaml sync
 ```
 
-### Configuration File: `config.yaml`
+### Configuration File: config.yaml
 
+The `config.yaml` defines multiple sync tasks. Each sync task specifies:
 
-The config.yaml defines multiple sync tasks. Each sync task specifies:  
-- Multi Mappings Config: sync supports multiple mappings per source, allowing you to replicate data from multiple databases or schemas to one or more target databases/schemas simultaneously. 
-- Type of Source (mongodb, mysql, mariadb, postgresql).
-- Source and target connection strings.
-- Database/table or collection mappings.
-- State file paths for resume tokens or binlog positions.
-  - MongoDB: mongodb_resume_token_path specifies the file path where the MongoDB resume token is stored.
-  - MySQL/MariaDB: mysql_position_path specifies the file path where the MySQL/MariaDB binlog position is stored.
-  - PostgreSQL: pg_replication_slot and pg_plugin specify the replication slot and plugin used for capturing WAL changes.
-
+- **Multi Mappings Config**: Sync supports multiple mappings per source, allowing you to replicate data from multiple databases or schemas to one or more target databases/schemas simultaneously.
+- **Type of Source** (`mongodb`, `mysql`, `mariadb`, `postgresql`).
+- **Source and Target Connection Strings**.
+- **Database/Table or Collection Mappings**.
+- **enable_table_row_count_monitoring**:  
+  Enables tracking of row counts for tables, providing insights into data growth and consistency.
+- **State File Paths for Resume Tokens or Binlog Positions**:  
+  Supports **resume functionality**, allowing the sync to continue from the last state after interruptions, ensuring data consistency.
+  - **MongoDB**: `mongodb_resume_token_path` specifies the file path where the MongoDB resume token is stored.
+  - **MySQL/MariaDB**: `mysql_position_path` specifies the file path where the MySQL/MariaDB binlog position is stored.
+  - **PostgreSQL**: `pg_replication_slot` and `pg_plugin` specify the replication slot and plugin used for capturing WAL changes.
+  
 #### Example `config.yaml`
 
 ```yaml
+enable_table_row_count_monitoring: true
+
 sync_configs:
   - type: "mongodb"
     enable: true
     source_connection: "mongodb://<source_username>:<source_password>@<source_host>:<source_port>"
     target_connection: "mongodb://<target_username>:<target_password>@<target_host>:<target_port>"
-    mongodb_resume_token_path: "/data/state/mongodb_resume_token"
+    mongodb_resume_token_path: "/path/to/mongodb_resume_token"
     mappings:
       - source_database: "source_db_1"
         target_database: "target_db_1"
@@ -115,9 +120,9 @@ sync_configs:
 
   - type: "mysql"
     enable: true
-    source_connection: "<source_username>:<source_password>@tcp(<source_host>:<source_port>)/source_db"
-    target_connection: "<target_username>:<target_password>@tcp(<target_host>:<target_port>)/target_db"
-    mysql_position_path: "/data/state/mysql_position"
+    source_connection: "<source_username>:<source_password>@tcp(<source_host>:<source_port>)/<source_database>"
+    target_connection: "<target_username>:<target_password>@tcp(<target_host>:<target_port>)/<target_database>"
+    mysql_position_path: "/path/to/mysql_position"
     mappings:
       - source_database: "source_db_1"
         target_database: "target_db_1"
@@ -141,13 +146,13 @@ sync_configs:
             target_table: "target_table_1"
           - source_table: "source_table_2"
             target_table: "target_table_2"
-    dump_execution_path: "/path/to/dump_tool"    
+    dump_execution_path: "/path/to/dump_tool"
 
   - type: "postgresql"
     enable: true
     source_connection: "postgres://<source_username>:<source_password>@<pg_source_host>:<pg_source_port>/<source_db>?sslmode=disable"
     target_connection: "postgres://<target_username>:<target_password>@<pg_target_host>:<pg_target_port>/<target_db>?sslmode=disable"
-    pg_position_path: "/tmp/state/pg_position"
+    pg_position_path: "/path/to/postgresql_position"
     pg_replication_slot: "sync_slot"
     pg_plugin: "wal2json"
     mappings:
