@@ -61,7 +61,6 @@ func (s *MariaDBSyncer) Start(ctx context.Context) {
 	if err != nil {
 		s.logger.Fatalf("Failed to connect to target MariaDB database: %v", err)
 	}
-	// Decide if you need defer targetDB.Close() based on your usage
 
 	// 5. Perform initial full sync if the target table is empty
 	s.doInitialFullSyncIfNeeded(ctx, c, targetDB)
@@ -89,7 +88,7 @@ func (s *MariaDBSyncer) Start(ctx context.Context) {
 	if s.cfg.MySQLPositionPath != "" {
 		startPos = s.loadBinlogPosition(s.cfg.MySQLPositionPath)
 		if startPos != nil {
-			s.logger.Infof("Starting MariaDB canal from saved position: %v", *startPos)
+			s.logger.Infof("[MariaDB] Starting canal from saved position: %v", *startPos)
 		}
 	}
 
@@ -105,17 +104,17 @@ func (s *MariaDBSyncer) Start(ctx context.Context) {
 				pos := c.SyncedPosition()
 				data, err := json.Marshal(pos)
 				if err != nil {
-					s.logger.Errorf("Failed to marshal binlog position: %v", err)
+					s.logger.Errorf("[MariaDB] Failed to marshal binlog position: %v", err)
 					continue
 				}
 				if h.positionSaverPath != "" {
 					positionDir := filepath.Dir(h.positionSaverPath)
 					if err := os.MkdirAll(positionDir, os.ModePerm); err != nil {
-						s.logger.Errorf("Failed to create directory for MariaDB position file %s: %v", h.positionSaverPath, err)
+						s.logger.Errorf("[MariaDB] Failed to create directory for binlog position file %s: %v", h.positionSaverPath, err)
 						continue
 					}
 					if err := ioutil.WriteFile(h.positionSaverPath, data, 0644); err != nil {
-						s.logger.Errorf("Failed to write binlog position to %s: %v", h.positionSaverPath, err)
+						s.logger.Errorf("[MariaDB] Failed to write binlog position to %s: %v", h.positionSaverPath, err)
 					}
 				}
 			}
@@ -130,21 +129,20 @@ func (s *MariaDBSyncer) Start(ctx context.Context) {
 			err = c.Run()
 		}
 		if err != nil {
-			s.logger.Fatalf("Failed to run canal for MariaDB: %v", err)
+			s.logger.Fatalf("[MariaDB] Failed to run canal: %v", err)
 		}
 	}()
 
 	// 11. Wait for context to end
 	<-ctx.Done()
-	s.logger.Info("MariaDB synchronization stopped.")
+	s.logger.Info("[MariaDB] Synchronization stopped.")
 }
 
 // Perform initial full sync if needed (batch insertion)
 func (s *MariaDBSyncer) doInitialFullSyncIfNeeded(ctx context.Context, c *canal.Canal, targetDB *sql.DB) {
-	// Reconnect to the source DB with the same DSN to manually query
 	sourceDB, err := sql.Open("mysql", s.cfg.SourceConnection)
 	if err != nil {
-		s.logger.Fatalf("Failed to open source DB for initial sync in MariaDB: %v", err)
+		s.logger.Fatalf("[MariaDB] Failed to open source DB for initial sync: %v", err)
 	}
 	defer sourceDB.Close()
 
@@ -193,7 +191,6 @@ func (s *MariaDBSyncer) doInitialFullSyncIfNeeded(ctx context.Context, c *canal.
 			insertedCount := 0
 			batchRows := make([][]interface{}, 0, batchSize)
 
-			// Batch read
 			for srcRows.Next() {
 				rowValues := make([]interface{}, len(cols))
 				valuePtrs := make([]interface{}, len(cols))
@@ -208,7 +205,6 @@ func (s *MariaDBSyncer) doInitialFullSyncIfNeeded(ctx context.Context, c *canal.
 
 				batchRows = append(batchRows, rowValues)
 				if len(batchRows) == batchSize {
-					// Batch insert
 					err := s.batchInsert(ctx, targetDB, targetDBName, tableMap.TargetTable, cols, batchRows)
 					if err != nil {
 						s.logger.Errorf("[MariaDB] Batch insert failed: %v", err)
@@ -220,7 +216,6 @@ func (s *MariaDBSyncer) doInitialFullSyncIfNeeded(ctx context.Context, c *canal.
 			}
 			srcRows.Close()
 
-			// Process remaining rows
 			if len(batchRows) > 0 {
 				err := s.batchInsert(ctx, targetDB, targetDBName, tableMap.TargetTable, cols, batchRows)
 				if err != nil {
@@ -272,7 +267,7 @@ func (s *MariaDBSyncer) batchInsert(
 	return nil
 }
 
-// getColumnsOfTable uses SHOW COLUMNS to get table columns (allowing default etc. to be NULL)
+// getColumnsOfTable uses SHOW COLUMNS to get table columns
 func (s *MariaDBSyncer) getColumnsOfTable(ctx context.Context, db *sql.DB, database, table string) ([]string, error) {
 	query := fmt.Sprintf("SHOW COLUMNS FROM %s.%s", database, table)
 	rows, err := db.QueryContext(ctx, query)
@@ -284,7 +279,6 @@ func (s *MariaDBSyncer) getColumnsOfTable(ctx context.Context, db *sql.DB, datab
 	var cols []string
 	for rows.Next() {
 		var field, typeStr, nullStr, keyStr, defaultStr, extraStr sql.NullString
-
 		if err := rows.Scan(&field, &typeStr, &nullStr, &keyStr, &defaultStr, &extraStr); err != nil {
 			return nil, fmt.Errorf("failed to scan columns info from table %s.%s: %v", database, table, err)
 		}
@@ -309,22 +303,22 @@ func makeQuestionMarks(n int) []string {
 func (s *MariaDBSyncer) loadBinlogPosition(path string) *mysql.Position {
 	positionDir := filepath.Dir(path)
 	if err := os.MkdirAll(positionDir, os.ModePerm); err != nil {
-		s.logger.Errorf("Failed to create directory for MariaDB position file %s: %v", path, err)
+		s.logger.Errorf("[MariaDB] Failed to create directory for position file %s: %v", path, err)
 		return nil
 	}
 
 	data, err := ioutil.ReadFile(path)
 	if err != nil {
-		s.logger.Infof("No previous binlog position file at %s: %v", path, err)
+		s.logger.Infof("[MariaDB] No previous binlog position file at %s: %v", path, err)
 		return nil
 	}
 	if len(data) <= 1 {
-		s.logger.Infof("Binlog position file for %s is empty", path)
+		s.logger.Infof("[MariaDB] Binlog position file for %s is empty", path)
 		return nil
 	}
 	var pos mysql.Position
 	if err := json.Unmarshal(data, &pos); err != nil {
-		s.logger.Errorf("Failed to unmarshal binlog position from %s: %v", path, err)
+		s.logger.Errorf("[MariaDB] Failed to unmarshal binlog position from %s: %v", path, err)
 		return nil
 	}
 	return &pos
@@ -334,7 +328,7 @@ func (s *MariaDBSyncer) loadBinlogPosition(path string) *mysql.Position {
 func (s *MariaDBSyncer) parseAddr(dsn string) string {
 	parts := strings.Split(dsn, "@tcp(")
 	if len(parts) < 2 {
-		s.logger.Fatalf("Invalid DSN format for MariaDB: %s", dsn)
+		s.logger.Fatalf("[MariaDB] Invalid DSN format: %s", dsn)
 	}
 	addr := strings.Split(parts[1], ")")[0]
 	return addr
@@ -344,12 +338,12 @@ func (s *MariaDBSyncer) parseAddr(dsn string) string {
 func (s *MariaDBSyncer) parseUserPassword(dsn string) (string, string) {
 	parts := strings.Split(dsn, "@")
 	if len(parts) < 2 {
-		s.logger.Fatalf("Invalid DSN format for MariaDB: %s", dsn)
+		s.logger.Fatalf("[MariaDB] Invalid DSN format: %s", dsn)
 	}
 	userInfo := parts[0]
 	userParts := strings.Split(userInfo, ":")
 	if len(userParts) < 2 {
-		s.logger.Fatalf("Invalid DSN user info for MariaDB: %s", userInfo)
+		s.logger.Fatalf("[MariaDB] Invalid DSN user info: %s", userInfo)
 	}
 	return userParts[0], userParts[1]
 }
@@ -391,7 +385,7 @@ func (h *MariaDBEventHandler) OnRow(e *canal.RowsEvent) error {
 	}
 
 	if !found {
-		h.logger.Warnf("No mapping found for source table %s.%s (MariaDB)", sourceDB, tableName)
+		h.logger.Warnf("[MariaDB] No mapping found for source table %s.%s", sourceDB, tableName)
 		return nil
 	}
 
@@ -403,24 +397,28 @@ func (h *MariaDBEventHandler) OnRow(e *canal.RowsEvent) error {
 	switch e.Action {
 	case canal.InsertAction:
 		for _, row := range e.Rows {
-			h.handleInsert(targetDBName, targetTableName, columnNames, row)
+			h.handleInsert(sourceDB, tableName, targetDBName, targetTableName, columnNames, row)
 		}
 	case canal.UpdateAction:
 		for i := 0; i < len(e.Rows); i += 2 {
 			oldRow := e.Rows[i]
 			newRow := e.Rows[i+1]
-			h.handleUpdate(targetDBName, targetTableName, columnNames, table, oldRow, newRow)
+			h.handleUpdate(sourceDB, tableName, targetDBName, targetTableName, columnNames, table, oldRow, newRow)
 		}
 	case canal.DeleteAction:
 		for _, row := range e.Rows {
-			h.handleDelete(targetDBName, targetTableName, columnNames, table, row)
+			h.handleDelete(sourceDB, tableName, targetDBName, targetTableName, columnNames, table, row)
 		}
 	}
 	return nil
 }
 
 // handleInsert for insert events
-func (h *MariaDBEventHandler) handleInsert(targetDBName, targetTableName string, columnNames []string, row []interface{}) {
+func (h *MariaDBEventHandler) handleInsert(
+	sourceDB, sourceTable, targetDBName, targetTableName string,
+	columnNames []string,
+	row []interface{},
+) {
 	placeholders := make([]string, len(columnNames))
 	for i := range placeholders {
 		placeholders[i] = "?"
@@ -432,13 +430,15 @@ func (h *MariaDBEventHandler) handleInsert(targetDBName, targetTableName string,
 
 	_, err := h.targetDB.Exec(query, row...)
 	if err != nil {
-		h.logger.Errorf("[MariaDB] Failed to insert into target database: %v", err)
+		h.logger.Errorf("[MariaDB] [INSERT] {src_db: %s, src_table: %s} => {dst_db: %s, dst_table: %s} Insert row error: %v", sourceDB, sourceTable, targetDBName, targetTableName, err)
+	} else {
+		h.logger.Infof("[MariaDB] [INSERT] {src_db: %s, src_table: %s} => {dst_db: %s, dst_table: %s} Values: %+v", sourceDB, sourceTable, targetDBName, targetTableName, row)
 	}
 }
 
 // handleUpdate for update events
 func (h *MariaDBEventHandler) handleUpdate(
-	targetDBName, targetTableName string,
+	sourceDB, sourceTable, targetDBName, targetTableName string,
 	columnNames []string,
 	table *schema.Table,
 	oldRow, newRow []interface{},
@@ -456,8 +456,7 @@ func (h *MariaDBEventHandler) handleUpdate(
 		whereValues = append(whereValues, oldRow[pkIndex])
 	}
 	if len(whereClauses) == 0 {
-		h.logger.Warnf("[MariaDB] No primary key defined on table %s.%s, cannot perform update",
-			targetDBName, targetTableName)
+		h.logger.Warnf("[MariaDB] [UPDATE] {src_db: %s, src_table: %s} => {dst_db: %s, dst_table: %s} No primary key", sourceDB, sourceTable, targetDBName, targetTableName)
 		return
 	}
 
@@ -469,13 +468,15 @@ func (h *MariaDBEventHandler) handleUpdate(
 	args := append(newRow, whereValues...)
 	_, err := h.targetDB.Exec(query, args...)
 	if err != nil {
-		h.logger.Errorf("[MariaDB] Failed to update target database: %v", err)
+		h.logger.Errorf("[MariaDB] [UPDATE] {src_db: %s, src_table: %s} => {dst_db: %s, dst_table: %s} Update row error: %v", sourceDB, sourceTable, targetDBName, targetTableName, err)
+	} else {
+		h.logger.Infof("[MariaDB] [UPDATE] {src_db: %s, src_table: %s} => {dst_db: %s, dst_table: %s} Old Values: %+v, New Values: %+v", sourceDB, sourceTable, targetDBName, targetTableName, oldRow, newRow)
 	}
 }
 
 // handleDelete for delete events
 func (h *MariaDBEventHandler) handleDelete(
-	targetDBName, targetTableName string,
+	sourceDB, sourceTable, targetDBName, targetTableName string,
 	columnNames []string,
 	table *schema.Table,
 	row []interface{},
@@ -488,8 +489,7 @@ func (h *MariaDBEventHandler) handleDelete(
 		whereValues = append(whereValues, row[pkIndex])
 	}
 	if len(whereClauses) == 0 {
-		h.logger.Warnf("[MariaDB] No primary key defined on table %s.%s, cannot perform delete",
-			targetDBName, targetTableName)
+		h.logger.Warnf("[MariaDB] [DELETE] {src_db: %s, src_table: %s} => {dst_db: %s, dst_table: %s} No primary key", sourceDB, sourceTable, targetDBName, targetTableName)
 		return
 	}
 
@@ -499,7 +499,9 @@ func (h *MariaDBEventHandler) handleDelete(
 		strings.Join(whereClauses, " AND "))
 	_, err := h.targetDB.Exec(query, whereValues...)
 	if err != nil {
-		h.logger.Errorf("[MariaDB] Failed to delete from target database: %v", err)
+		h.logger.Errorf("[MariaDB] [DELETE] {src_db: %s, src_table: %s} => {dst_db: %s, dst_table: %s} Delete error: %v", sourceDB, sourceTable, targetDBName, targetTableName, err)
+	} else {
+		h.logger.Infof("[MariaDB] [DELETE] {src_db: %s, src_table: %s} => {dst_db: %s, dst_table: %s} Deleted row PK: %+v", sourceDB, sourceTable, targetDBName, targetTableName, whereValues)
 	}
 }
 
@@ -508,7 +510,7 @@ func (h *MariaDBEventHandler) String() string {
 	return "MariaDBEventHandler"
 }
 
-// OnPosSynced does not write positions here; modify if needed
+// OnPosSynced does not write positions here; we use the timer approach instead
 func (h *MariaDBEventHandler) OnPosSynced(header *replication.EventHeader, pos mysql.Position, gs mysql.GTIDSet, force bool) error {
 	return nil
 }
