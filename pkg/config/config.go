@@ -39,6 +39,7 @@ type SyncConfig struct {
 
 type Config struct {
 	EnableTableRowCountMonitoring bool           `yaml:"enable_table_row_count_monitoring,omitempty"`
+	LogLevel                      string         `yaml:"log_level,omitempty"`
 	SyncConfigs                   []SyncConfig   `yaml:"sync_configs"`
 	Logger                        *logrus.Logger `yaml:"-"`
 }

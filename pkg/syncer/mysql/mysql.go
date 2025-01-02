@@ -404,7 +404,7 @@ func (h *MyEventHandler) handleInsert(
 	if err != nil {
 		h.logger.Errorf("[MySQL] [INSERT] {src_db: %s, src_table: %s} => {dst_db: %s, dst_table: %s} Insert row error: %v", sourceDB, sourceTable, targetDBName, targetTableName, err)
 	} else {
-		h.logger.Infof("[MySQL] [INSERT] {src_db: %s, src_table: %s} => {dst_db: %s, dst_table: %s} Values: %+v", sourceDB, sourceTable, targetDBName, targetTableName, row)
+		h.logger.Debugf("[MySQL] [INSERT] {src_db: %s, src_table: %s} => {dst_db: %s, dst_table: %s} Values: %+v", sourceDB, sourceTable, targetDBName, targetTableName, row)
 	}
 }
 
@@ -440,7 +440,7 @@ func (h *MyEventHandler) handleUpdate(
 	if err != nil {
 		h.logger.Errorf("[MySQL] [UPDATE] {src_db: %s, src_table: %s} => {dst_db: %s, dst_table: %s} Update row error: %v", sourceDB, sourceTable, targetDBName, targetTableName, err)
 	} else {
-		h.logger.Infof("[MySQL] [UPDATE] {src_db: %s, src_table: %s} => {dst_db: %s, dst_table: %s} Old Values: %+v, New Values: %+v", sourceDB, sourceTable, targetDBName, targetTableName, oldRow, newRow)
+		h.logger.Debugf("[MySQL] [UPDATE] {src_db: %s, src_table: %s} => {dst_db: %s, dst_table: %s} Old Values: %+v, New Values: %+v", sourceDB, sourceTable, targetDBName, targetTableName, oldRow, newRow)
 	}
 }
 
@@ -467,7 +467,7 @@ func (h *MyEventHandler) handleDelete(
 	if err != nil {
 		h.logger.Errorf("[MySQL] [DELETE] {src_db: %s, src_table: %s} => {dst_db: %s, dst_table: %s} Delete error: %v", sourceDB, sourceTable, targetDBName, targetTableName, err)
 	} else {
-		h.logger.Infof("[MySQL] [DELETE] {src_db: %s, src_table: %s} => {dst_db: %s, dst_table: %s} Deleted row PK: %+v", sourceDB, sourceTable, targetDBName, targetTableName, whereValues)
+		h.logger.Debugf("[MySQL] [DELETE] {src_db: %s, src_table: %s} => {dst_db: %s, dst_table: %s} Deleted row PK: %+v", sourceDB, sourceTable, targetDBName, targetTableName, whereValues)
 	}
 }
 

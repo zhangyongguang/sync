@@ -509,7 +509,7 @@ func (s *PostgreSQLSyncer) handleDelete(
 	if err != nil {
 		s.logger.Errorf("[PostgreSQL] [DELETE] {src_schema: %s, src_table: %s} => {dst_db: %s, dst_schema: %s, dst_table: %s} Error: %v", srcSchema, srcTable, dstDB, dstSchema, dstTable, err)
 	} else {
-		s.logger.Infof("[PostgreSQL] [DELETE] {src_schema: %s, src_table: %s} => {dst_db: %s, dst_schema: %s, dst_table: %s} Key: %+v", srcSchema, srcTable, dstDB, dstSchema, dstTable, keyValues)
+		s.logger.Debugf("[PostgreSQL] [DELETE] {src_schema: %s, src_table: %s} => {dst_db: %s, dst_schema: %s, dst_table: %s} Key: %+v", srcSchema, srcTable, dstDB, dstSchema, dstTable, keyValues)
 	}
 }
 
@@ -534,7 +534,7 @@ func (s *PostgreSQLSyncer) insertOrUpdate(
 		if err != nil {
 			s.logger.Errorf("[PostgreSQL] [INSERT] {src_schema: %s, src_table: %s} => {dst_db: %s, dst_schema: %s, dst_table: %s} Error: %v", srcSchema, srcTable, dstDB, dstSchema, dstTable, err)
 		} else {
-			s.logger.Infof("[PostgreSQL] [INSERT] {src_schema: %s, src_table: %s} => {dst_db: %s, dst_schema: %s, dst_table: %s} Values: %+v", srcSchema, srcTable, dstDB, dstSchema, dstTable, colValues)
+			s.logger.Debugf("[PostgreSQL] [INSERT] {src_schema: %s, src_table: %s} => {dst_db: %s, dst_schema: %s, dst_table: %s} Values: %+v", srcSchema, srcTable, dstDB, dstSchema, dstTable, colValues)
 		}
 	} else {
 		setClauses := []string{}
@@ -555,7 +555,7 @@ func (s *PostgreSQLSyncer) insertOrUpdate(
 		if err != nil {
 			s.logger.Errorf("[PostgreSQL] [UPDATE] {src_schema: %s, src_table: %s} => {dst_db: %s, dst_schema: %s, dst_table: %s} Error: %v", srcSchema, srcTable, dstDB, dstSchema, dstTable, err)
 		} else {
-			s.logger.Infof("[PostgreSQL] [UPDATE] {src_schema: %s, src_table: %s} => {dst_db: %s, dst_schema: %s, dst_table: %s} Old Keys: %+v, New Values: %+v", srcSchema, srcTable, dstDB, dstSchema, dstTable, keyValues, colValues)
+			s.logger.Debugf("[PostgreSQL] [UPDATE] {src_schema: %s, src_table: %s} => {dst_db: %s, dst_schema: %s, dst_table: %s} Old Keys: %+v, New Values: %+v", srcSchema, srcTable, dstDB, dstSchema, dstTable, keyValues, colValues)
 		}
 	}
 }

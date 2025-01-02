@@ -432,7 +432,7 @@ func (h *MariaDBEventHandler) handleInsert(
 	if err != nil {
 		h.logger.Errorf("[MariaDB] [INSERT] {src_db: %s, src_table: %s} => {dst_db: %s, dst_table: %s} Insert row error: %v", sourceDB, sourceTable, targetDBName, targetTableName, err)
 	} else {
-		h.logger.Infof("[MariaDB] [INSERT] {src_db: %s, src_table: %s} => {dst_db: %s, dst_table: %s} Values: %+v", sourceDB, sourceTable, targetDBName, targetTableName, row)
+		h.logger.Debugf("[MariaDB] [INSERT] {src_db: %s, src_table: %s} => {dst_db: %s, dst_table: %s} Values: %+v", sourceDB, sourceTable, targetDBName, targetTableName, row)
 	}
 }
 
@@ -447,8 +447,8 @@ func (h *MariaDBEventHandler) handleUpdate(
 	for i, col := range columnNames {
 		setClauses[i] = fmt.Sprintf("%s = ?", col)
 	}
-	var whereClauses []string
-	var whereValues []interface{}
+	whereClauses := []string{}
+	whereValues := []interface{}{}
 
 	// Use primary key as WHERE condition
 	for _, pkIndex := range table.PKColumns {
@@ -470,7 +470,7 @@ func (h *MariaDBEventHandler) handleUpdate(
 	if err != nil {
 		h.logger.Errorf("[MariaDB] [UPDATE] {src_db: %s, src_table: %s} => {dst_db: %s, dst_table: %s} Update row error: %v", sourceDB, sourceTable, targetDBName, targetTableName, err)
 	} else {
-		h.logger.Infof("[MariaDB] [UPDATE] {src_db: %s, src_table: %s} => {dst_db: %s, dst_table: %s} Old Values: %+v, New Values: %+v", sourceDB, sourceTable, targetDBName, targetTableName, oldRow, newRow)
+		h.logger.Debugf("[MariaDB] [UPDATE] {src_db: %s, src_table: %s} => {dst_db: %s, dst_table: %s} Old Values: %+v, New Values: %+v", sourceDB, sourceTable, targetDBName, targetTableName, oldRow, newRow)
 	}
 }
 
@@ -481,8 +481,8 @@ func (h *MariaDBEventHandler) handleDelete(
 	table *schema.Table,
 	row []interface{},
 ) {
-	var whereClauses []string
-	var whereValues []interface{}
+	whereClauses := []string{}
+	whereValues := []interface{}{}
 
 	for _, pkIndex := range table.PKColumns {
 		whereClauses = append(whereClauses, fmt.Sprintf("%s = ?", columnNames[pkIndex]))
@@ -501,7 +501,7 @@ func (h *MariaDBEventHandler) handleDelete(
 	if err != nil {
 		h.logger.Errorf("[MariaDB] [DELETE] {src_db: %s, src_table: %s} => {dst_db: %s, dst_table: %s} Delete error: %v", sourceDB, sourceTable, targetDBName, targetTableName, err)
 	} else {
-		h.logger.Infof("[MariaDB] [DELETE] {src_db: %s, src_table: %s} => {dst_db: %s, dst_table: %s} Deleted row PK: %+v", sourceDB, sourceTable, targetDBName, targetTableName, whereValues)
+		h.logger.Debugf("[MariaDB] [DELETE] {src_db: %s, src_table: %s} => {dst_db: %s, dst_table: %s} Deleted row PK: %+v", sourceDB, sourceTable, targetDBName, targetTableName, whereValues)
 	}
 }
 

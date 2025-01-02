@@ -40,9 +40,7 @@ func main() {
 
 	// Load configuration
 	cfg := config.NewConfig()
-	log := logger.InitLogger()
-	// Force JSON output format
-	log.SetFormatter(&logrus.JSONFormatter{})
+	log := logger.InitLogger(cfg.LogLevel)
 
 	// Start backend synchronization
 	var wg sync.WaitGroup
