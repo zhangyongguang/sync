@@ -25,6 +25,10 @@ Synchronize Production NOSQL and SQL data to Standalone instances for Data scien
 
 ![image](https://github.com/user-attachments/assets/65b23a4c-56db-4833-89a1-0f802af878bd)
 
+### Grafana Integration(temporary transition phase)
+![image](https://github.com/user-attachments/assets/cdc8e57b-8aa4-4386-8aa8-de5028698fd0)
+
+
 ## Features
 
 - **Initial Sync**:
