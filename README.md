@@ -3,7 +3,7 @@
 Synchronize Production NOSQL and SQL data to Standalone instances for Data scientists or other purposes. A **Go-based** tool to synchronize MongoDB or SQL data from a **MongoDB replica set** or **sharded cluster** or production SQL instance to a **standalone instance**, supports initial and incremental synchronization with change stream monitoring.
 
 > [!NOTE]
-> We are experimenting with SQL options and plan to release the feature in **sync** version 2.0.
+> Sync is now supporting MySQl, PostgreSQL and MariaDB. Next `Sync` will support Redis and Elasticsearch.
 
 ## Supported Databases
 
@@ -36,7 +36,7 @@ Synchronize Production NOSQL and SQL data to Standalone instances for Data scien
   - MySQL/MariaDB: Uses binlog replication events to capture and apply incremental changes to the target.
   - PostgreSQL: Uses WAL (Write-Ahead Log) with the wal2json plugin to capture and apply incremental changes to the target.
 - **Batch Processing & Concurrency**:  
-  Handles synchronization in batches for optimized performance, and supports parallel synchronization for multiple collections/tables.
+  Handles synchronization in batches for optimized performance and supports parallel synchronization for multiple collections/tables.
 - **Restart Resilience**: 
   Stores MongoDB resume tokens, MySQL binlog positions, and PostgreSQL replication positions in configurable state files, allowing the tool to resume synchronization from the last known position after a restart.
 
@@ -49,7 +49,7 @@ Synchronize Production NOSQL and SQL data to Standalone instances for Data scien
   - A target MySQL or MariaDB instance with write permissions.
 - For PostgreSQL sources:
   - A PostgreSQL instance with logical replication enabled and a replication slot created.
-  - The wal2json plugin installed and configured on the PostgreSQL source.
+  - The wal2json plugin is installed and configured on the PostgreSQL source.
   - A target PostgreSQL instance with write permissions.
 
 ## Quick start
@@ -65,19 +65,19 @@ tar -xzf sync.tar.gz
 ## Installation(For development)
 
 ```
-# 1.Clone the repository:
+# 1. Clone the repository:
 git clone https://github.com/retail-ai-inc/sync.git
 cd sync
 
-# 2.Install dependencies
+# 2. Install dependencies
 go mod tidy
 
-# 3.Build the binary
+# 3. Build the binary
 cp configs/config.sample.yaml configs/config.yaml
 # Edit config.yaml to replace the placeholders with your instance details.
 go build -o sync cmd/sync/main.go
 
-# 4.Build the Docker image
+# 4. Build the Docker image
 docker build -t sync .
 docker run -v $(pwd)/configs/config.yaml:/app/configs/config.yaml sync
 ```
@@ -85,7 +85,6 @@ docker run -v $(pwd)/configs/config.yaml:/app/configs/config.yaml sync
 ### Configuration File: config.yaml
 
 The `config.yaml` defines multiple sync tasks. Each sync task specifies:
-
 - **Multi Mappings Config**: Sync supports multiple mappings per source, allowing you to replicate data from multiple databases or schemas to one or more target databases/schemas simultaneously.
 - **Type of Source** (`mongodb`, `mysql`, `mariadb`, `postgresql`).
 - **Source and Target Connection Strings**.
@@ -97,7 +96,7 @@ The `config.yaml` defines multiple sync tasks. Each sync task specifies:
   - **MongoDB**: `mongodb_resume_token_path` specifies the file path where the MongoDB resume token is stored.
   - **MySQL/MariaDB**: `mysql_position_path` specifies the file path where the MySQL/MariaDB binlog position is stored.
   - **PostgreSQL**: `pg_replication_slot` and `pg_plugin` specify the replication slot and plugin used for capturing WAL changes.
-  
+
 #### Example `config.yaml`
 
 ```yaml
@@ -171,13 +170,15 @@ sync_configs:
 - MySQL/MariaDB: Uses binlog replication to apply incremental changes to the target.
 - PostgreSQL: Uses WAL (Write-Ahead Log) with the wal2json plugin to apply incremental changes to the target.
 
-On restart, the tool resumes from the stored state (resume token for MongoDB, binlog position for MySQL/MariaDB, replication slot for PostgreSQL).
+On the restart, the tool resumes from the stored state (resume token for MongoDB, binlog position for MySQL/MariaDB, replication slot for PostgreSQL).
 
 ## Availability  
 
 - MongoDB: MongoDB Change Streams require a replica set or sharded cluster. See [Convert Standalone to Replica Set](https://www.mongodb.com/docs/manual/tutorial/convert-standalone-to-replica-set/).
 - MySQL/MariaDB: MySQL/MariaDB binlog-based incremental sync requires ROW or MIXED binlog format for proper event capturing.
-- PostgreSQL incremental sync requires logical replication enabled with a replication slot and the wal2json plugin installed.
+- PostgreSQL incremental sync requires logical replication enabled with a replication slot and [the wal2json plugin installed](https://github.com/eulerto/wal2json?tab=readme-ov-file#build-and-install).
 
 ## Contributing
-Contributions are welcome! Please fork the repository, make changes, and submit a pull request.
+
+We encourage all contributions to this repository! Please fork the repository or open an issue, make changes, and submit a pull request.
+Note: All interactions here should conform to the [Code of Conduct](https://github.com/retail-ai-inc/sync/blob/main/CODE_OF_CONDUCT.md).
