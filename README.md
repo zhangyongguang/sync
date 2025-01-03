@@ -9,7 +9,7 @@ Synchronize Production NOSQL and SQL data to Standalone instances for Data scien
 Let’s assume you have a mid to big-size SaaS platform or service with multiple tech teams and stakeholders. Different teams have different requirements for analyzing the production data independently. However, the tech team doesn’t want to allow all these stakeholders direct access to the production databases due to security and stability issues.
 
 ## A simple one-way solution
-Create standalone databases outside of your production database servers with the same name as production and sync the production data of the specific tables or collections to the standalone database.
+Create standalone databases outside of your production database servers with the same name as production and sync the production data of the specific tables or collections to the standalone database. **Sync** will do this for you.
 
 ## Supported Databases
 
