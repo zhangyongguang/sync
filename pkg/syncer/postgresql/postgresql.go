@@ -90,7 +90,6 @@ func (s *PostgreSQLSyncer) Start(ctx context.Context) {
 		s.logger.Errorf("[PostgreSQL] Initial sync failed: %v", err)
 	}
 
-
 	err = s.startLogicalReplication(ctx)
 	if err != nil {
 		s.logger.Errorf("[PostgreSQL] Logical replication failed: %v", err)
@@ -295,13 +294,13 @@ func (s *PostgreSQLSyncer) startLogicalReplication(ctx context.Context) error {
 				if err != nil {
 					return fmt.Errorf("[PostgreSQL] ParseXLogData failed: %v", err)
 				}
-				
+
 				newLsn := xld.WALStart
 				if newLsn > s.currentLsn {
 					applyErr := s.handleWalData(ctx, xld.WALData)
 					if applyErr != nil {
 						s.logger.Errorf("[PostgreSQL] handleWalData error: %v", applyErr)
-					} else {						
+					} else {
 						s.currentLsn = newLsn
 						if s.cfg.PGPositionPath != "" {
 							saveErr := s.savePosition(s.cfg.PGPositionPath, s.currentLsn)
