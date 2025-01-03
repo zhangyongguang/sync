@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sync"
@@ -72,7 +71,7 @@ func (s *MongoDBSyncer) getResumeTokenPath(db string, collection string) string 
 
 func (s *MongoDBSyncer) loadMongoDBResumeToken(db string, collection string) bson.Raw {
 	path := s.getResumeTokenPath(db, collection)
-	data, err := ioutil.ReadFile(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		s.logger.Infof("[MongoDB] No previous resume token for %s.%s at %s: %v", db, collection, path, err)
 		return nil
@@ -100,7 +99,7 @@ func (s *MongoDBSyncer) saveMongoDBResumeToken(db string, collection string, tok
 		s.logger.Errorf("[MongoDB] Failed to marshal resume token for %s.%s: %v", db, collection, err)
 		return
 	}
-	if err := ioutil.WriteFile(path, data, 0644); err != nil {
+	if err := os.WriteFile(path, data, 0644); err != nil {
 		s.logger.Errorf("[MongoDB] Failed to write resume token for %s.%s to file %s: %v", db, collection, path, err)
 	} else {
 		s.logger.Debugf("[MongoDB] Saved resume token for %s.%s to %s", db, collection, path)

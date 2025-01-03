@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -100,7 +99,7 @@ func (s *MySQLSyncer) Start(ctx context.Context) {
 							s.logger.Errorf("[MySQL] Failed to create directory for position file %s: %v", h.positionSaverPath, err)
 							continue
 						}
-						if err := ioutil.WriteFile(h.positionSaverPath, data, 0644); err != nil {
+						if err := os.WriteFile(h.positionSaverPath, data, 0644); err != nil {
 							s.logger.Errorf("[MySQL] Failed to write binlog position to %s: %v", h.positionSaverPath, err)
 						} else {
 							s.logger.Debugf("[MySQL] Timer: saved position %v", pos)
@@ -263,7 +262,7 @@ func (s *MySQLSyncer) loadBinlogPosition(path string) *mysql.Position {
 		return nil
 	}
 
-	data, err := ioutil.ReadFile(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		s.logger.Infof("[MySQL] No previous binlog position file at %s: %v", path, err)
 		return nil

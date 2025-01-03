@@ -54,4 +54,6 @@ config.json
 .DS_Store
 .goreleaser.yaml
 dist/
+
+sync
 cloudbuild.yaml

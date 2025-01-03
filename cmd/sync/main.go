@@ -234,7 +234,9 @@ func countAndLogMongoDB(ctx context.Context, sc config.SyncConfig) {
 			Error("[Monitor] Fail connect to source")
 		return
 	}
-	defer srcClient.Disconnect(ctx)
+	defer func() {
+		_ = srcClient.Disconnect(ctx)
+	}()
 
 	tgtClient, err := mongo.Connect(ctx, options.Client().ApplyURI(sc.TargetConnection))
 	if err != nil {
@@ -242,7 +244,9 @@ func countAndLogMongoDB(ctx context.Context, sc config.SyncConfig) {
 			Error("[Monitor] Fail connect to target")
 		return
 	}
-	defer tgtClient.Disconnect(ctx)
+	defer func() {
+		_ = tgtClient.Disconnect(ctx)
+	}()
 
 	for _, mapping := range sc.Mappings {
 		srcDBName := mapping.SourceDatabase

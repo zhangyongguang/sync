@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -29,15 +28,6 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/lib/pq"
 )
-
-// Global counter for generating unique primary key IDs (MongoDB does not depend on this ID)
-var testIDCounter int64 = 0
-
-// This function may only be used in MongoDB (if needed)
-// For MySQL, we no longer use this global counter, but instead get the next ID by querying the database
-func getUniqueID() int64 {
-	return atomic.AddInt64(&testIDCounter, 1)
-}
 
 // Added function: get the full "schema.table" or "database.table"
 func getQualifiedTableName(dbmap config.DatabaseMapping, useSource bool, tblmap config.TableMapping) string {
@@ -88,7 +78,7 @@ func TestFullSync(t *testing.T) {
 	mongoMapping, mysqlMapping, mariadbMapping, pgMapping := extractAllMappings(cfg)
 
 	// Start all syncers
-	startAllSyncers(ctx, cfg, logger.InitLogger())
+	startAllSyncers(ctx, cfg, logger.InitLogger(logrus.DebugLevel.String()))
 	t.Log("Syncers started, waiting initial sync...")
 	time.Sleep(5 * time.Second)
 
@@ -195,8 +185,8 @@ func connectAllDatabases(t *testing.T) (
 		}
 		t.Log("MongoDB source/target connected successfully.")
 		t.Cleanup(func() {
-			mongoSourceClient.Disconnect(context.Background())
-			mongoTargetClient.Disconnect(context.Background())
+			_ = mongoSourceClient.Disconnect(context.Background())
+			_ = mongoTargetClient.Disconnect(context.Background())
 		})
 	}
 

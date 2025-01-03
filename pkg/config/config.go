@@ -1,7 +1,6 @@
 package config
 
 import (
-	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
@@ -56,7 +55,7 @@ func NewConfig() *Config {
 		configPath = filepath.Join(cwd, "configs/config.yaml")
 	}
 
-	data, err := ioutil.ReadFile(configPath)
+	data, err := os.ReadFile(configPath)
 	if err != nil {
 		log.Fatalf("Failed to read configuration file: %v", err)
 	}

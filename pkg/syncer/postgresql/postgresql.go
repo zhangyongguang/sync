@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -481,11 +480,11 @@ func (s *PostgreSQLSyncer) savePosition(path string, lsn pglogrepl.LSN) error {
 	if err != nil {
 		return fmt.Errorf("[PostgreSQL] failed to marshal LSN: %v", err)
 	}
-	return ioutil.WriteFile(path, data, 0644)
+	return os.WriteFile(path, data, 0644)
 }
 
 func (s *PostgreSQLSyncer) loadPosition(path string) (pglogrepl.LSN, error) {
-	data, err := ioutil.ReadFile(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return 0, err
 	}
