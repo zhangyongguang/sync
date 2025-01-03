@@ -30,7 +30,7 @@ WORKDIR /app
 COPY --from=builder /app/sync .
 
 # Copy the configuration file
-COPY configs ./
+COPY --from=builder /app/configs ./configs
 
 # Run the application
 ENTRYPOINT ["./sync"]

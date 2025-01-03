@@ -16,7 +16,9 @@ type TableMapping struct {
 
 type DatabaseMapping struct {
 	SourceDatabase string         `yaml:"source_database"`
+	SourceSchema   string         `yaml:"source_schema,omitempty"`
 	TargetDatabase string         `yaml:"target_database"`
+	TargetSchema   string         `yaml:"target_schema,omitempty"`
 	Tables         []TableMapping `yaml:"tables"`
 }
 
@@ -29,25 +31,27 @@ type SyncConfig struct {
 	DumpExecutionPath      string            `yaml:"dump_execution_path,omitempty"`
 	MySQLPositionPath      string            `yaml:"mysql_position_path,omitempty"`
 	MongoDBResumeTokenPath string            `yaml:"mongodb_resume_token_path,omitempty"`
+	PGReplicationSlotName  string            `yaml:"pg_replication_slot,omitempty"`
+	PGPluginName           string            `yaml:"pg_plugin,omitempty"`
+	PGPositionPath         string            `yaml:"pg_position_path,omitempty"` // New field to store LSN position
 }
 
 type Config struct {
-	SyncConfigs []SyncConfig   `yaml:"sync_configs"`
-	Logger      *logrus.Logger `yaml:"-"`
+	EnableTableRowCountMonitoring bool           `yaml:"enable_table_row_count_monitoring,omitempty"`
+	LogLevel                      string         `yaml:"log_level,omitempty"`
+	SyncConfigs                   []SyncConfig   `yaml:"sync_configs"`
+	Logger                        *logrus.Logger `yaml:"-"`
 }
 
 func NewConfig() *Config {
-	// Get the current working directory
 	cwd, err := os.Getwd()
 	if err != nil {
 		log.Fatalf("Failed to get working directory: %v", err)
 	}
 	log.Printf("Current working directory: %s", cwd)
 
-	// Prefer using the CONFIG_PATH environment variable to specify the configuration file path
 	configPath := os.Getenv("CONFIG_PATH")
 	if configPath == "" {
-		// If the environment variable is not set, use the path relative to the project root directory
 		configPath = filepath.Join(cwd, "configs/config.yaml")
 	}
 
@@ -63,4 +67,12 @@ func NewConfig() *Config {
 
 	cfg.Logger = logrus.New()
 	return &cfg
+}
+
+func (s *SyncConfig) PGReplicationSlot() string {
+	return s.PGReplicationSlotName
+}
+
+func (s *SyncConfig) PGPlugin() string {
+	return s.PGPluginName
 }
