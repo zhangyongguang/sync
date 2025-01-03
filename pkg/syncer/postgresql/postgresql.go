@@ -31,9 +31,6 @@ type PostgreSQLSyncer struct {
 	repSlot          string
 	outputPlugin     string
 	currentLsn       pglogrepl.LSN
-
-	positionSaverTicker *time.Ticker
-	cancelPositionSaver context.CancelFunc
 }
 
 func NewPostgreSQLSyncer(cfg config.SyncConfig, logger *logrus.Logger) *PostgreSQLSyncer {
@@ -93,102 +90,13 @@ func (s *PostgreSQLSyncer) Start(ctx context.Context) {
 		s.logger.Errorf("[PostgreSQL] Initial sync failed: %v", err)
 	}
 
-	ctxPos, cancelPos := context.WithCancel(ctx)
-	s.cancelPositionSaver = cancelPos
-	s.positionSaverTicker = time.NewTicker(3 * time.Second)
-	go s.runPositionSaver(ctxPos, s.cfg.PGPositionPath)
-
 	err = s.startLogicalReplication(ctx)
 	if err != nil {
 		s.logger.Errorf("[PostgreSQL] Logical replication failed: %v", err)
-		s.stopPositionSaver()
 		return
 	}
 
-	s.stopPositionSaver()
 	s.logger.Info("[PostgreSQL] Synchronization tasks completed.")
-}
-
-func (s *PostgreSQLSyncer) stopPositionSaver() {
-	if s.positionSaverTicker != nil {
-		s.positionSaverTicker.Stop()
-	}
-	if s.cancelPositionSaver != nil {
-		s.cancelPositionSaver()
-	}
-}
-
-func (s *PostgreSQLSyncer) runPositionSaver(ctx context.Context, path string) {
-	if path == "" {
-		return
-	}
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-s.positionSaverTicker.C:
-			err := s.savePosition(path, s.currentLsn)
-			if err != nil {
-				s.logger.Errorf("[PostgreSQL] Failed to save position: %v", err)
-			}
-		}
-	}
-}
-
-func (s *PostgreSQLSyncer) savePosition(path string, lsn pglogrepl.LSN) error {
-	positionDir := filepath.Dir(path)
-	if err := os.MkdirAll(positionDir, os.ModePerm); err != nil {
-		return fmt.Errorf("[PostgreSQL] failed to create directory %s: %v", path, err)
-	}
-	data, err := json.Marshal(lsn.String())
-	if err != nil {
-		return fmt.Errorf("[PostgreSQL] failed to marshal LSN: %v", err)
-	}
-	return ioutil.WriteFile(path, data, 0644)
-}
-
-func (s *PostgreSQLSyncer) loadPosition(path string) (pglogrepl.LSN, error) {
-	data, err := ioutil.ReadFile(path)
-	if err != nil {
-		return 0, err
-	}
-	if len(data) <= 1 {
-		return 0, fmt.Errorf("empty position file")
-	}
-	var lsnStr string
-	err = json.Unmarshal(data, &lsnStr)
-	if err != nil {
-		return 0, err
-	}
-	lsn, err := parseLSNFromString(lsnStr)
-	if err != nil {
-		return 0, err
-	}
-	return lsn, nil
-}
-
-func parseLSNFromString(lsnStr string) (pglogrepl.LSN, error) {
-	parts := strings.Split(lsnStr, "/")
-	if len(parts) != 2 {
-		return 0, fmt.Errorf("invalid LSN format: %s", lsnStr)
-	}
-	hiVal, err := hexStrToUint32(parts[0])
-	if err != nil {
-		return 0, err
-	}
-	loVal, err := hexStrToUint32(parts[1])
-	if err != nil {
-		return 0, err
-	}
-	return pglogrepl.LSN(uint64(hiVal)<<32 + uint64(loVal)), nil
-}
-
-func hexStrToUint32(s string) (uint32, error) {
-	val, err := strconv.ParseUint(s, 16, 32)
-	if err != nil {
-		return 0, err
-	}
-	return uint32(val), nil
 }
 
 func (s *PostgreSQLSyncer) buildReplicationDSN(normalDSN string) (string, error) {
@@ -386,17 +294,20 @@ func (s *PostgreSQLSyncer) startLogicalReplication(ctx context.Context) error {
 				if err != nil {
 					return fmt.Errorf("[PostgreSQL] ParseXLogData failed: %v", err)
 				}
-				if xld.WALStart > s.currentLsn {
-					s.currentLsn = xld.WALStart
-				}
-				err = s.handleWalData(ctx, xld.WALData)
-				if err != nil {
-					s.logger.Errorf("[PostgreSQL] handleWalData error: %v", err)
-				}
-				if s.cfg.PGPositionPath != "" {
-					saveErr := s.savePosition(s.cfg.PGPositionPath, s.currentLsn)
-					if saveErr != nil {
-						s.logger.Errorf("[PostgreSQL] Failed to save position: %v", saveErr)
+
+				newLsn := xld.WALStart
+				if newLsn > s.currentLsn {
+					applyErr := s.handleWalData(ctx, xld.WALData)
+					if applyErr != nil {
+						s.logger.Errorf("[PostgreSQL] handleWalData error: %v", applyErr)
+					} else {
+						s.currentLsn = newLsn
+						if s.cfg.PGPositionPath != "" {
+							saveErr := s.savePosition(s.cfg.PGPositionPath, s.currentLsn)
+							if saveErr != nil {
+								s.logger.Errorf("[PostgreSQL] Failed to save position: %v", saveErr)
+							}
+						}
 					}
 				}
 
@@ -558,4 +469,61 @@ func (s *PostgreSQLSyncer) insertOrUpdate(
 			s.logger.Debugf("[PostgreSQL] [UPDATE] {src_schema: %s, src_table: %s} => {dst_db: %s, dst_schema: %s, dst_table: %s} Old Keys: %+v, New Values: %+v", srcSchema, srcTable, dstDB, dstSchema, dstTable, keyValues, colValues)
 		}
 	}
+}
+
+// [CHANGED] 原来的 runPositionSaver / ticker 已去除，改为在 handleWalData 成功时立即保存
+func (s *PostgreSQLSyncer) savePosition(path string, lsn pglogrepl.LSN) error {
+	positionDir := filepath.Dir(path)
+	if err := os.MkdirAll(positionDir, os.ModePerm); err != nil {
+		return fmt.Errorf("[PostgreSQL] failed to create directory %s: %v", path, err)
+	}
+	data, err := json.Marshal(lsn.String())
+	if err != nil {
+		return fmt.Errorf("[PostgreSQL] failed to marshal LSN: %v", err)
+	}
+	return ioutil.WriteFile(path, data, 0644)
+}
+
+func (s *PostgreSQLSyncer) loadPosition(path string) (pglogrepl.LSN, error) {
+	data, err := ioutil.ReadFile(path)
+	if err != nil {
+		return 0, err
+	}
+	if len(data) <= 1 {
+		return 0, fmt.Errorf("empty position file")
+	}
+	var lsnStr string
+	err = json.Unmarshal(data, &lsnStr)
+	if err != nil {
+		return 0, err
+	}
+	lsn, err := parseLSNFromString(lsnStr)
+	if err != nil {
+		return 0, err
+	}
+	return lsn, nil
+}
+
+func parseLSNFromString(lsnStr string) (pglogrepl.LSN, error) {
+	parts := strings.Split(lsnStr, "/")
+	if len(parts) != 2 {
+		return 0, fmt.Errorf("invalid LSN format: %s", lsnStr)
+	}
+	hiVal, err := hexStrToUint32(parts[0])
+	if err != nil {
+		return 0, err
+	}
+	loVal, err := hexStrToUint32(parts[1])
+	if err != nil {
+		return 0, err
+	}
+	return pglogrepl.LSN(uint64(hiVal)<<32 + uint64(loVal)), nil
+}
+
+func hexStrToUint32(s string) (uint32, error) {
+	val, err := strconv.ParseUint(s, 16, 32)
+	if err != nil {
+		return 0, err
+	}
+	return uint32(val), nil
 }

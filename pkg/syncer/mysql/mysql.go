@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-mysql-org/go-mysql/canal"
@@ -66,15 +67,9 @@ func (s *MySQLSyncer) Start(ctx context.Context) {
 		logger:            s.logger,
 		positionSaverPath: s.cfg.MySQLPositionPath,
 		canal:             c,
+		lastExecError:     0, // 0=ok, 1=error
 	}
 	c.SetEventHandler(h)
-
-	if s.cfg.MySQLPositionPath != "" {
-		positionDir := filepath.Dir(s.cfg.MySQLPositionPath)
-		if err := os.MkdirAll(positionDir, os.ModePerm); err != nil {
-			s.logger.Fatalf("[MySQL] Failed to create directory for position file %s: %v", s.cfg.MySQLPositionPath, err)
-		}
-	}
 
 	var startPos *mysql.Position
 	if s.cfg.MySQLPositionPath != "" {
@@ -93,20 +88,26 @@ func (s *MySQLSyncer) Start(ctx context.Context) {
 				return
 			case <-ticker.C:
 				pos := c.SyncedPosition()
-				data, err := json.Marshal(pos)
-				if err != nil {
-					s.logger.Errorf("[MySQL] Failed to marshal binlog position: %v", err)
-					continue
-				}
-				if h.positionSaverPath != "" {
-					positionDir := filepath.Dir(h.positionSaverPath)
-					if err := os.MkdirAll(positionDir, os.ModePerm); err != nil {
-						s.logger.Errorf("[MySQL] Failed to create directory for position file %s: %v", h.positionSaverPath, err)
+				if atomic.LoadInt32(&h.lastExecError) == 0 {
+					data, err := json.Marshal(pos)
+					if err != nil {
+						s.logger.Errorf("[MySQL] Failed to marshal binlog position: %v", err)
 						continue
 					}
-					if err := ioutil.WriteFile(h.positionSaverPath, data, 0644); err != nil {
-						s.logger.Errorf("[MySQL] Failed to write binlog position to %s: %v", h.positionSaverPath, err)
+					if h.positionSaverPath != "" {
+						positionDir := filepath.Dir(h.positionSaverPath)
+						if err := os.MkdirAll(positionDir, os.ModePerm); err != nil {
+							s.logger.Errorf("[MySQL] Failed to create directory for position file %s: %v", h.positionSaverPath, err)
+							continue
+						}
+						if err := ioutil.WriteFile(h.positionSaverPath, data, 0644); err != nil {
+							s.logger.Errorf("[MySQL] Failed to write binlog position to %s: %v", h.positionSaverPath, err)
+						} else {
+							s.logger.Debugf("[MySQL] Timer: saved position %v", pos)
+						}
 					}
+				} else {
+					s.logger.Warn("[MySQL] Timer: lastExecError != 0, skip saving binlog position")
 				}
 			}
 		}
@@ -333,6 +334,9 @@ type MyEventHandler struct {
 	logger            *logrus.Logger
 	positionSaverPath string
 	canal             *canal.Canal
+
+	// 0=ok, 1=error
+	lastExecError int32
 }
 
 func (h *MyEventHandler) OnRow(e *canal.RowsEvent) error {
@@ -403,8 +407,10 @@ func (h *MyEventHandler) handleInsert(
 	_, err := h.targetDB.Exec(query, row...)
 	if err != nil {
 		h.logger.Errorf("[MySQL] [INSERT] {src_db: %s, src_table: %s} => {dst_db: %s, dst_table: %s} Insert row error: %v", sourceDB, sourceTable, targetDBName, targetTableName, err)
+		atomic.StoreInt32(&h.lastExecError, 1)
 	} else {
 		h.logger.Debugf("[MySQL] [INSERT] {src_db: %s, src_table: %s} => {dst_db: %s, dst_table: %s} Values: %+v", sourceDB, sourceTable, targetDBName, targetTableName, row)
+		atomic.StoreInt32(&h.lastExecError, 0)
 	}
 }
 
@@ -439,8 +445,10 @@ func (h *MyEventHandler) handleUpdate(
 	_, err := h.targetDB.Exec(query, args...)
 	if err != nil {
 		h.logger.Errorf("[MySQL] [UPDATE] {src_db: %s, src_table: %s} => {dst_db: %s, dst_table: %s} Update row error: %v", sourceDB, sourceTable, targetDBName, targetTableName, err)
+		atomic.StoreInt32(&h.lastExecError, 1)
 	} else {
 		h.logger.Debugf("[MySQL] [UPDATE] {src_db: %s, src_table: %s} => {dst_db: %s, dst_table: %s} Old Values: %+v, New Values: %+v", sourceDB, sourceTable, targetDBName, targetTableName, oldRow, newRow)
+		atomic.StoreInt32(&h.lastExecError, 0)
 	}
 }
 
@@ -466,8 +474,10 @@ func (h *MyEventHandler) handleDelete(
 	_, err := h.targetDB.Exec(query, whereValues...)
 	if err != nil {
 		h.logger.Errorf("[MySQL] [DELETE] {src_db: %s, src_table: %s} => {dst_db: %s, dst_table: %s} Delete error: %v", sourceDB, sourceTable, targetDBName, targetTableName, err)
+		atomic.StoreInt32(&h.lastExecError, 1)
 	} else {
 		h.logger.Debugf("[MySQL] [DELETE] {src_db: %s, src_table: %s} => {dst_db: %s, dst_table: %s} Deleted row PK: %+v", sourceDB, sourceTable, targetDBName, targetTableName, whereValues)
+		atomic.StoreInt32(&h.lastExecError, 0)
 	}
 }
 

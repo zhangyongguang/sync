@@ -17,6 +17,11 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+type bufferedChange struct {
+	token bson.Raw
+	model mongo.WriteModel
+}
+
 type MongoDBSyncer struct {
 	sourceClient  *mongo.Client
 	targetClient  *mongo.Client
@@ -233,7 +238,7 @@ func (s *MongoDBSyncer) watchChangesForCollection(ctx context.Context, sourceCol
 
 	s.logger.Infof("[MongoDB] Watching changes in %s.%s", sourceDB, collectionName)
 
-	var buffer []mongo.WriteModel
+	var buffer []bufferedChange
 	const batchSize = 200
 	flushInterval := time.Second * 1
 	timer := time.NewTimer(flushInterval)
@@ -280,14 +285,13 @@ func (s *MongoDBSyncer) watchChangesForCollection(ctx context.Context, sourceCol
 				s.logger.Debugf("[MongoDB] [OP: %s] {db: %s, coll: %s} Event: %+v", operationType, sourceDB, collectionName, changeEvent)
 
 				token := cs.ResumeToken()
-				if token != nil {
-					s.saveMongoDBResumeToken(sourceDB, collectionName, token)
-				}
-
-				writeModel := s.prepareWriteModel(changeEvent, sourceDB, collectionName)
-				if writeModel != nil {
+				model := s.prepareWriteModel(changeEvent, sourceDB, collectionName)
+				if model != nil {
 					bufferMutex.Lock()
-					buffer = append(buffer, writeModel)
+					buffer = append(buffer, bufferedChange{
+						token: token,
+						model: model,
+					})
 					bufferSize := len(buffer)
 					bufferMutex.Unlock()
 
@@ -338,15 +342,22 @@ func (s *MongoDBSyncer) prepareWriteModel(changeEvent bson.M, sourceDB, collecti
 func (s *MongoDBSyncer) flushBuffer(
 	ctx context.Context,
 	targetColl *mongo.Collection,
-	buffer *[]mongo.WriteModel,
+	buffer *[]bufferedChange,
 	targetDB, sourceDB, collectionName string,
 ) {
 	if len(*buffer) == 0 {
 		return
 	}
 
+	writeModels := make([]mongo.WriteModel, len(*buffer))
+	var lastToken bson.Raw
+	for i, bc := range *buffer {
+		writeModels[i] = bc.model
+		lastToken = bc.token
+	}
+
 	opts := options.BulkWrite().SetOrdered(false)
-	result, err := targetColl.BulkWrite(ctx, *buffer, opts)
+	result, err := targetColl.BulkWrite(ctx, writeModels, opts)
 	if err != nil {
 		s.logger.Errorf("[MongoDB] Bulk write failed for %s.%s: %v", targetDB, targetColl.Name(), err)
 	} else {
@@ -356,7 +367,11 @@ func (s *MongoDBSyncer) flushBuffer(
 			result.MatchedCount,
 			result.ModifiedCount,
 			result.UpsertedCount,
-			result.DeletedCount)
+			result.DeletedCount,
+		)
+		if lastToken != nil {
+			s.saveMongoDBResumeToken(sourceDB, collectionName, lastToken)
+		}
 	}
 
 	*buffer = (*buffer)[:0]
