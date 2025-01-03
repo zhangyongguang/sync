@@ -21,7 +21,10 @@ jobs:
 
       - name: Install dependencies
         run: go mod download
-
+      
+      - name: Rename sample config file for testing purpose
+        run: cp configs/config.sample.yaml configs/config.yaml
+        
       - name: Run tests
         run: go test -race -coverprofile=coverage.txt -covermode=atomic ./...
 
