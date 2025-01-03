@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -26,15 +25,6 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 )
-
-// Global counter for generating unique primary key IDs (MongoDB does not depend on this ID)
-var testIDCounter int64 = 0
-
-// This function may only be used in MongoDB (if needed)
-// For MySQL, we no longer use this global counter, but instead get the next ID by querying the database
-func getUniqueID() int64 {
-	return atomic.AddInt64(&testIDCounter, 1)
-}
 
 // Get the next available auto-increment ID value from the MySQL table: max(id) + 1
 func getNextMySQLID(t *testing.T, db *sql.DB, database, table string) int64 {
@@ -96,8 +86,11 @@ func TestFullSync(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to connect MongoDB: %v", err)
 		}
-		defer mongoSourceClient.Disconnect(context.Background())
-		defer mongoTargetClient.Disconnect(context.Background())
+		defer func() {
+			_ = mongoSourceClient.Disconnect(context.Background())
+			_ = mongoTargetClient.Disconnect(context.Background())
+		}()
+
 		t.Log("MongoDB source/target connected successfully.")
 	}
 
@@ -106,8 +99,10 @@ func TestFullSync(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to connect MySQL: %v", err)
 		}
-		defer mysqlSourceDB.Close()
-		defer mysqlTargetDB.Close()
+		defer func() {
+			mysqlSourceDB.Close()
+			mysqlTargetDB.Close()
+		}()
 		t.Log("MySQL source/target connected successfully.")
 	}
 
@@ -132,11 +127,11 @@ func TestFullSync(t *testing.T) {
 	initialInsertCount := 3 // Can control the number of inserted records via a variable
 	if mongoEnabled && mongoSourceClient != nil {
 		prepareInitialData(t, mongoSourceClient, mongoMappings, "initial_mongo_doc", initialInsertCount)
-		t.Log(fmt.Sprintf("Inserted %d initial documents into MongoDB source.", initialInsertCount))
+		t.Logf("Inserted %d initial documents into MongoDB source.", initialInsertCount)
 	}
 	if mysqlEnabled && mysqlSourceDB != nil {
 		prepareInitialData(t, mysqlSourceDB, mysqlMappings, "initial_mysql_doc", initialInsertCount)
-		t.Log(fmt.Sprintf("Inserted %d initial rows into MySQL source.", initialInsertCount))
+		t.Logf("Inserted %d initial rows into MySQL source.", initialInsertCount)
 	}
 
 	// Verify initial data synchronization
@@ -230,6 +225,7 @@ func connectMySQL(cfg *config.Config) (*sql.DB, *sql.DB, error) {
 	return srcDB, tgtDB, nil
 }
 
+/*
 // Clean up MongoDB source and target data
 func cleanupMongoSourceAndTargetData(t *testing.T, mongoSourceClient, mongoTargetClient *mongo.Client, mongoMapping []config.DatabaseMapping) {
 	for _, m := range mongoMapping {
@@ -270,6 +266,7 @@ func cleanupMySQLSourceAndTargetData(t *testing.T, mysqlSourceDB, mysqlTargetDB 
 		}
 	}
 }
+*/
 
 // Extract mappings
 func extractMappings(cfg *config.Config) ([]config.DatabaseMapping, []config.DatabaseMapping) {

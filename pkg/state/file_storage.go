@@ -1,7 +1,6 @@
 package state
 
 import (
-	"io/ioutil"
 	"os"
 	"path/filepath"
 )
@@ -16,10 +15,10 @@ func NewFileStateStore(dir string) *FileStateStore {
 
 func (f *FileStateStore) Save(key string, value []byte) error {
 	path := filepath.Join(f.dir, key)
-	return ioutil.WriteFile(path, value, 0644)
+	return os.WriteFile(path, value, 0644)
 }
 
 func (f *FileStateStore) Load(key string) ([]byte, error) {
 	path := filepath.Join(f.dir, key)
-	return ioutil.ReadFile(path)
+	return os.ReadFile(path)
 }

@@ -53,3 +53,5 @@ config.json
 config.yaml
 .goreleaser.yaml
 dist/
+
+sync
