@@ -75,7 +75,9 @@ jobs:
 
         
       - name: Run tests
-        run: go test -race -coverprofile=coverage.txt -covermode=atomic ./...
+        run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
+      - name: Check coverage file
+        run: cat coverage.txt
 
 
       - name: Tear down Docker Compose
