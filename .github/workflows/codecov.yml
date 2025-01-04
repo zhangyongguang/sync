@@ -33,6 +33,14 @@ jobs:
       - name: Install dependencies
         run: go mod download
 
+
+      # Install Docker Compose
+      - name: Install Docker Compose
+        run: |
+          curl -L https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m) -o /usr/local/bin/docker-compose
+          chmod +x /usr/local/bin/docker-compose
+          docker-compose --version  # Verify installation
+
       - name: Start Docker Compose services
         run: |
           docker-compose -f docker/docker-compose.yml up -d
