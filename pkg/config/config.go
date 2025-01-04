@@ -34,6 +34,7 @@ type SyncConfig struct {
 	PGReplicationSlotName  string            `yaml:"pg_replication_slot,omitempty"`
 	PGPluginName           string            `yaml:"pg_plugin,omitempty"`
 	PGPositionPath         string            `yaml:"pg_position_path,omitempty"` // New field to store LSN position
+	PGPublicationNames     string            `yaml:"pg_publication_names"`
 }
 
 type Config struct {
