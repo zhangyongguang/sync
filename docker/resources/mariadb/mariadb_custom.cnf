@@ -1,0 +1,4 @@
+[mysqld]
+server_id=1
+log_bin=ON
+binlog_format=ROW

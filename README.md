@@ -16,7 +16,7 @@ Create standalone databases outside of your production database servers with the
 - MongoDB (Sharded clusters, Replica sets)
 - MySQL
 - MariaDB 
-- PostgreSQL (PostgreSQL version 9.4+、Enable logical replication、Install the wal2json plugin)
+- PostgreSQL (PostgreSQL version 10+、Enable logical replication)
 
 ## High Level Design Diagram
 
@@ -40,11 +40,11 @@ Create standalone databases outside of your production database servers with the
 - **Initial Sync**:
   - MongoDB: Bulk synchronization of data from the MongoDB cluster or MongoDB replica set to the standalone MongoDB instance.
   - MySQL/MariaDB: Initial synchronization using batch inserts (default batch size: 100 rows) from the source to the target if the target table is empty.
-  - PostgreSQL: Initial synchronization using batch inserts (default batch size: 100 rows) from the source to the target using logical replication slots and the wal2json plugin.
+  - PostgreSQL: Initial synchronization using batch inserts (default batch size: 100 rows) from the source to the target using logical replication slots and the pgoutput plugin.
 - **Change Stream & Binlog Monitoring**:
   - MongoDB: Watches for real-time changes (insert, update, replace, delete) in the cluster's collections and reflects them in the standalone instance.
   - MySQL/MariaDB: Uses binlog replication events to capture and apply incremental changes to the target.
-  - PostgreSQL: Uses WAL (Write-Ahead Log) with the wal2json plugin to capture and apply incremental changes to the target.
+  - PostgreSQL: Uses WAL (Write-Ahead Log) with the pgoutput plugin to capture and apply incremental changes to the target.
 - **Batch Processing & Concurrency**:  
   Handles synchronization in batches for optimized performance and supports parallel synchronization for multiple collections/tables.
 - **Restart Resilience**: 
@@ -64,7 +64,6 @@ Create standalone databases outside of your production database servers with the
   - A target MySQL or MariaDB instance with write permissions.
 - For PostgreSQL sources:
   - A PostgreSQL instance with logical replication enabled and a replication slot created.
-  - The wal2json plugin is installed and configured on the PostgreSQL source.
   - A target PostgreSQL instance with write permissions.
 
 ## Quick start
@@ -88,8 +87,7 @@ cd sync
 go mod tidy
 
 # 3. Build the binary
-cp configs/config.sample.yaml configs/config.yaml
-# Edit config.yaml to replace the placeholders with your instance details.
+# Edit configs/config.yaml to replace the placeholders with your instance details.
 go build -o sync cmd/sync/main.go
 
 # 4. Build the Docker image
@@ -121,70 +119,63 @@ log_level: "info"  # Optional values: "debug", "info", "warn", "error", "fatal",
 sync_configs:
   - type: "mongodb"
     enable: true
-    source_connection: "mongodb://<source_username>:<source_password>@<source_host>:<source_port>"
-    target_connection: "mongodb://<target_username>:<target_password>@<target_host>:<target_port>"
-    mongodb_resume_token_path: "/path/to/mongodb_resume_token"
+    source_connection: "mongodb://localhost:27017"
+    target_connection: "mongodb://localhost:27017"
+    mongodb_resume_token_path: "/tmp/state/mongodb_resume_token"
     mappings:
-      - source_database: "source_db_1"
-        target_database: "target_db_1"
+      - source_database: "source_db"
+        target_database: "target_db"
         tables:
-          - source_table: "source_table_1"
-            target_table: "target_table_1"
-          - source_table: "source_table_2"
-            target_table: "target_table_2"
+          - source_table: "users"
+            target_table: "users"
 
   - type: "mysql"
     enable: true
-    source_connection: "<source_username>:<source_password>@tcp(<source_host>:<source_port>)/<source_database>"
-    target_connection: "<target_username>:<target_password>@tcp(<target_host>:<target_port>)/<target_database>"
-    mysql_position_path: "/path/to/mysql_position"
+    source_connection: "root:root@tcp(localhost:3306)/source_db"
+    target_connection: "root:root@tcp(localhost:3306)/target_db"
+    mysql_position_path: "/tmp/state/mysql_position"
     mappings:
-      - source_database: "source_db_1"
-        target_database: "target_db_1"
+      - source_database: "source_db"
+        target_database: "target_db"
         tables:
-          - source_table: "source_table_1"
-            target_table: "target_table_1"
-          - source_table: "source_table_2"
-            target_table: "target_table_2"
-    dump_execution_path: "" # optional
+          - source_table: "users"
+            target_table: "users"
 
   - type: "mariadb"
     enable: true
-    source_connection: "<source_username>:<source_password>@tcp(<mariadb_source_host>:<mariadb_source_port>)/<source_database>"
-    target_connection: "<target_username>:<target_password>@tcp(<mariadb_target_host>:<mariadb_target_port>)/<target_database>"
-    mysql_position_path: "/path/to/mariadb_position"
+    source_connection: "root:root@tcp(localhost:3307)/source_db"
+    target_connection: "root:root@tcp(localhost:3307)/target_db"
+    mysql_position_path: "/tmp/state/mariadb_position"
     mappings:
-      - source_database: "source_db_1"
-        target_database: "target_db_1"
+      - source_database: "source_db"
+        target_database: "target_db"
         tables:
-          - source_table: "source_table_1"
-            target_table: "target_table_1"
-          - source_table: "source_table_2"
-            target_table: "target_table_2"
-    dump_execution_path: "/path/to/dump_tool"
+          - source_table: "users"
+            target_table: "users"
 
   - type: "postgresql"
     enable: true
-    source_connection: "postgres://<source_username>:<source_password>@<pg_source_host>:<pg_source_port>/<source_db>?sslmode=disable"
-    target_connection: "postgres://<target_username>:<target_password>@<pg_target_host>:<pg_target_port>/<target_db>?sslmode=disable"
-    pg_position_path: "/path/to/postgresql_position"
+    source_connection: "postgres://root:root@localhost:5432/source_db?sslmode=disable"
+    target_connection: "postgres://root:root@localhost:5432/target_db?sslmode=disable"
+    pg_position_path: "/tmp/state/pg_position"
     pg_replication_slot: "sync_slot"
-    pg_plugin: "wal2json"
+    pg_plugin: "pgoutput"
+    pg_publication_names: "mypub"
     mappings:
-      - source_database: "source_db_1"
-        target_database: "target_db_1"
+      - source_database: "source_db"
+        source_schema: "public"
+        target_database: "target_db"
+        target_schema: "public"
         tables:
-          - source_table: "source_table_1"
-            target_table: "target_table_1"
-          - source_table: "source_table_2"
-            target_table: "target_table_2"   
+          - source_table: "users"
+            target_table: "users"
 ```
 
 ## Real-Time Synchronization
 
 - MongoDB: Uses Change Streams from replica sets or sharded clusters for incremental updates.
 - MySQL/MariaDB: Uses binlog replication to apply incremental changes to the target.
-- PostgreSQL: Uses WAL (Write-Ahead Log) with the wal2json plugin to apply incremental changes to the target.
+- PostgreSQL: Uses WAL (Write-Ahead Log) with the pgoutput plugin to apply incremental changes to the target.
 
 On the restart, the tool resumes from the stored state (resume token for MongoDB, binlog position for MySQL/MariaDB, replication slot for PostgreSQL).
 
@@ -192,7 +183,7 @@ On the restart, the tool resumes from the stored state (resume token for MongoDB
 
 - MongoDB: MongoDB Change Streams require a replica set or sharded cluster. See [Convert Standalone to Replica Set](https://www.mongodb.com/docs/manual/tutorial/convert-standalone-to-replica-set/).
 - MySQL/MariaDB: MySQL/MariaDB binlog-based incremental sync requires ROW or MIXED binlog format for proper event capturing.
-- PostgreSQL incremental sync requires logical replication enabled with a replication slot and [the wal2json plugin installed](https://github.com/eulerto/wal2json?tab=readme-ov-file#build-and-install).
+- PostgreSQL incremental sync requires logical replication enabled with a replication slot.
 
 ## Contributing
 

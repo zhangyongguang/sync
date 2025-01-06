@@ -10,6 +10,17 @@ jobs:
   test:
     name: Run tests and collect coverage
     runs-on: ubuntu-latest
+
+    services:
+      docker:
+        image: docker:20.10.7
+        options: --privileged
+        ports:
+          - 3306:3306    # MySQL
+          - 3307:3306    # MariaDB
+          - 5432:5432    # PostgreSQL
+          - 27017:27017  # MongoDB
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -18,12 +29,51 @@ jobs:
 
       - name: Set up Go
         uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.5'
 
       - name: Install dependencies
         run: go mod download
-      
-      - name: Rename sample config file for testing purpose
-        run: cp configs/config.sample.yaml configs/config.yaml
+
+
+      # Install Docker Compose
+      - name: Install Docker Compose
+        run: |
+          curl -L https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m) -o /usr/local/bin/docker-compose
+          chmod +x /usr/local/bin/docker-compose
+          docker-compose --version  # Verify installation
+
+      - name: Start Docker Compose services
+        run: |
+          docker-compose -f docker/docker-compose.yml up -d
+
+      - name: Wait for services to be ready
+        run: |
+          for i in {1..30}; do
+            nc -z localhost 3306 && echo "MySQL is up" && break
+            echo "Waiting for MySQL..."
+            sleep 1
+          done
+
+          for i in {1..30}; do
+            nc -z localhost 3307 && echo "MariaDB is up" && break
+            echo "Waiting for MariaDB..."
+            sleep 1
+          done
+
+          for i in {1..30}; do
+            nc -z localhost 5432 && echo "PostgreSQL is up" && break
+            echo "Waiting for PostgreSQL..."
+            sleep 1
+          done
+
+          for i in {1..30}; do
+            nc -z localhost 27017 && echo "MongoDB is up" && break
+            echo "Waiting for MongoDB..."
+            sleep 1
+          done
+
+          echo "All services are up!"
         
       - name: Run tests
         run: go test -race -coverprofile=coverage.txt -covermode=atomic ./...
@@ -33,3 +83,8 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           slug: retail-ai-inc/sync
+
+      - name: Tear down Docker Compose
+        if: always()
+        run: |
+          docker-compose -f docker/docker-compose.yml down

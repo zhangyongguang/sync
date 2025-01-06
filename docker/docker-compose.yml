@@ -1,0 +1,47 @@
+version: '3.9'
+
+services:
+  mysql:
+    image: mysql:8.1
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+    volumes:
+      - ./resources/mysql/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./resources/mysql/mysql_custom.cnf:/etc/mysql/conf.d/mysql_custom.cnf
+    ports:
+      - "3306:3306"
+
+  mariadb:
+    image: mariadb:10.6
+    restart: always
+    environment:
+      MARIADB_ROOT_PASSWORD: root
+    volumes:
+      - ./resources/mariadb/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./resources/mariadb/mariadb_custom.cnf:/etc/mysql/conf.d/mariadb_custom.cnf
+    ports:
+      - "3307:3306"
+
+  postgresql:
+    image: postgres:15
+    restart: always
+    environment:
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: root
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./resources/postgresql/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./resources/postgresql/postgresql.conf:/etc/postgresql/postgresql.conf
+    command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
+
+  mongodb:
+    image: mongo:6.0
+    restart: always
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    volumes:
+      - ./resources/mongodb/init.js:/docker-entrypoint-initdb.d/init.js:ro
+    ports:
+      - "27017:27017"

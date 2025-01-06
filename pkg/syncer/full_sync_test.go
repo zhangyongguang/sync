@@ -466,8 +466,8 @@ func prepareInitialData(t *testing.T, src interface{}, mappings []config.Databas
 				var docs []interface{}
 				for i := 0; i < count; i++ {
 					docs = append(docs, bson.M{
-						"name":    fmt.Sprintf("%s_%s", docName, uuid.New().String()),
-						"content": fmt.Sprintf("RandomContent_%d_%s", i, uuid.New().String()),
+						"name":  fmt.Sprintf("%s_%s", docName, uuid.New().String()),
+						"email": fmt.Sprintf("Randomemail_%d_%s", i, uuid.New().String()),
 					})
 				}
 				_, err := srcColl.InsertMany(context.Background(), docs)
@@ -496,19 +496,19 @@ func prepareInitialData(t *testing.T, src interface{}, mappings []config.Databas
 				var insertSQL string
 				if isPostgresDBType(dbType) {
 					// PostgreSQL uses $1, $2, $3
-					insertSQL = fmt.Sprintf("INSERT INTO %s (id, name, content) VALUES ($1, $2, $3)", fullTableName)
+					insertSQL = fmt.Sprintf("INSERT INTO %s (id, name, email) VALUES ($1, $2, $3)", fullTableName)
 				} else {
 					// MySQL / MariaDB still uses ?
-					insertSQL = fmt.Sprintf("INSERT INTO %s (id, name, content) VALUES (?, ?, ?)", fullTableName)
+					insertSQL = fmt.Sprintf("INSERT INTO %s (id, name, email) VALUES (?, ?, ?)", fullTableName)
 				}
 
 				for i := 0; i < count; i++ {
 					nextID := getNextSQLID(t, s, fullTableName)
 					name := fmt.Sprintf("%s_%s", docName, uuid.New().String())
-					content := fmt.Sprintf("RandomContent_%d_%s", i, uuid.New().String())
+					email := fmt.Sprintf("Randomemail_%d_%s", i, uuid.New().String())
 
 					// Execute insert
-					if _, err := s.Exec(insertSQL, nextID, name, content); err != nil {
+					if _, err := s.Exec(insertSQL, nextID, name, email); err != nil {
 						t.Fatalf("Failed to insert row into %s: %v", fullTableName, err)
 					}
 				}
@@ -519,11 +519,11 @@ func prepareInitialData(t *testing.T, src interface{}, mappings []config.Databas
 
 // Verify data consistency
 func verifyDataConsistency(t *testing.T, src interface{}, tgt interface{}, mappings []config.DatabaseMapping, stage string) {
-	time.Sleep(10 * time.Second)
+	time.Sleep(3 * time.Second)
 	switch s := src.(type) {
 	case *mongo.Client:
 		// Additional wait for Mongo sync
-		time.Sleep(30 * time.Second)
+		time.Sleep(10 * time.Second)
 		tc := tgt.(*mongo.Client)
 		for _, dbmap := range mappings {
 			for _, tblmap := range dbmap.Tables {
@@ -563,7 +563,7 @@ func verifyDataConsistency(t *testing.T, src interface{}, tgt interface{}, mappi
 						dbmap.TargetDatabase, tblmap.TargetTable, len(srcDocs), len(tgtDocs))
 				}
 
-				// Compare contents
+				// Compare emails
 				srcMap := make(map[string]bson.M)
 				for _, doc := range srcDocs {
 					id, ok := doc["_id"].(primitive.ObjectID)
@@ -604,7 +604,7 @@ func verifyDataConsistency(t *testing.T, src interface{}, tgt interface{}, mappi
 				fullTgtTable := getQualifiedTableName(dbmap, false, tblmap)
 
 				// Fetch source data
-				srcQuery := fmt.Sprintf("SELECT id, name, content FROM %s ORDER BY id", fullSrcTable)
+				srcQuery := fmt.Sprintf("SELECT id, name, email FROM %s ORDER BY id", fullSrcTable)
 				srcRows, err := s.Query(srcQuery)
 				if err != nil {
 					t.Fatalf("Failed to fetch rows from source %s at %s stage: %v", fullSrcTable, stage, err)
@@ -613,19 +613,19 @@ func verifyDataConsistency(t *testing.T, src interface{}, tgt interface{}, mappi
 				var srcRowsData []map[string]interface{}
 				for srcRows.Next() {
 					var id int64
-					var name, content string
-					if err := srcRows.Scan(&id, &name, &content); err != nil {
+					var name, email string
+					if err := srcRows.Scan(&id, &name, &email); err != nil {
 						t.Fatalf("Failed to scan row from source %s: %v", fullSrcTable, err)
 					}
 					srcRowsData = append(srcRowsData, map[string]interface{}{
-						"id":      id,
-						"name":    name,
-						"content": content,
+						"id":    id,
+						"name":  name,
+						"email": email,
 					})
 				}
 
 				// Fetch target data
-				tgtQuery := fmt.Sprintf("SELECT id, name, content FROM %s ORDER BY id", fullTgtTable)
+				tgtQuery := fmt.Sprintf("SELECT id, name, email FROM %s ORDER BY id", fullTgtTable)
 				tgtRows, err := tc.Query(tgtQuery)
 				if err != nil {
 					t.Fatalf("Failed to fetch rows from target %s at %s stage: %v", fullTgtTable, stage, err)
@@ -634,14 +634,14 @@ func verifyDataConsistency(t *testing.T, src interface{}, tgt interface{}, mappi
 				var tgtRowsData []map[string]interface{}
 				for tgtRows.Next() {
 					var id int64
-					var name, content string
-					if err := tgtRows.Scan(&id, &name, &content); err != nil {
+					var name, email string
+					if err := tgtRows.Scan(&id, &name, &email); err != nil {
 						t.Fatalf("Failed to scan row from target %s: %v", fullTgtTable, err)
 					}
 					tgtRowsData = append(tgtRowsData, map[string]interface{}{
-						"id":      id,
-						"name":    name,
-						"content": content,
+						"id":    id,
+						"name":  name,
+						"email": email,
 					})
 				}
 
@@ -652,7 +652,7 @@ func verifyDataConsistency(t *testing.T, src interface{}, tgt interface{}, mappi
 						len(srcRowsData), len(tgtRowsData))
 				}
 
-				// Compare contents
+				// Compare emails
 				srcMap := make(map[int64]map[string]interface{})
 				for _, row := range srcRowsData {
 					srcMap[row["id"].(int64)] = row
@@ -699,8 +699,8 @@ func performMongoOperations(t *testing.T, sClient, tClient *mongo.Client, mappin
 			var docs []interface{}
 			for i := 0; i < insertCount; i++ {
 				docs = append(docs, bson.M{
-					"name":    "test_insert_" + uuid.New().String(),
-					"content": "RandomContent_" + strconv.Itoa(rand.Intn(1000)),
+					"name":  "test_insert_" + uuid.New().String(),
+					"email": "Randomemail_" + strconv.Itoa(rand.Intn(1000)),
 				})
 			}
 			_, err := srcColl.InsertMany(context.Background(), docs)
@@ -742,16 +742,16 @@ func performSQLOperations(t *testing.T, sDB, tDB *sql.DB, mappings []config.Data
 			insertCount := 3
 			var insertSQL string
 			if isPostgresDBType(dbType) {
-				insertSQL = fmt.Sprintf("INSERT INTO %s (id, name, content) VALUES ($1, $2, $3)", fullSrcTable)
+				insertSQL = fmt.Sprintf("INSERT INTO %s (id, name, email) VALUES ($1, $2, $3)", fullSrcTable)
 			} else {
-				insertSQL = fmt.Sprintf("INSERT INTO %s (id, name, content) VALUES (?, ?, ?)", fullSrcTable)
+				insertSQL = fmt.Sprintf("INSERT INTO %s (id, name, email) VALUES (?, ?, ?)", fullSrcTable)
 			}
 			for i := 0; i < insertCount; i++ {
 				insertID := getNextSQLID(t, sDB, fullSrcTable)
 				name := "test_insert_" + uuid.New().String()
-				content := "RandomContent_" + strconv.Itoa(rand.Intn(1000))
+				email := "Randomemail_" + strconv.Itoa(rand.Intn(1000))
 
-				if _, err := sDB.Exec(insertSQL, insertID, name, content); err != nil {
+				if _, err := sDB.Exec(insertSQL, insertID, name, email); err != nil {
 					t.Fatalf("%s insert failed: %v", dbType, err)
 				}
 			}
