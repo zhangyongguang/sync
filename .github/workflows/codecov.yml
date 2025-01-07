@@ -73,16 +73,12 @@ jobs:
             sleep 1
           done
 
+          
+          sleep 5
           echo "All services are up!"
         
       - name: Run tests
-        run: go test -race -coverprofile=coverage.txt -covermode=atomic ./...
-
-      - name: Upload results to Codecov
-        uses: codecov/codecov-action@v5
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          slug: retail-ai-inc/sync
+        run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
 
       - name: Tear down Docker Compose
         if: always()
