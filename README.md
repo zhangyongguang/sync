@@ -3,7 +3,7 @@
 Synchronize Production NOSQL and SQL data to Standalone instances for Data scientists or other purposes. A **Go-based** tool to synchronize MongoDB or SQL data from a **MongoDB replica set** or **sharded cluster** or production SQL instance to a **standalone instance**, supports initial and incremental synchronization with change stream monitoring.
 
 > [!NOTE]
-> Sync is now supporting MongoDB, MySQL, PostgreSQL, MariaDB, and Redis. Next, `Sync` will support Elasticsearch.
+Sync is now supporting MongoDB, MySQL, PostgreSQL, MariaDB, and Redis. Next, `Sync` will support Elasticsearch.
 
 ## What is the problem
 Let’s assume you have a mid to big-size SaaS platform or service with multiple tech teams and stakeholders. Different teams have different requirements for analyzing the production data independently. However, the tech team doesn’t want to allow all these stakeholders direct access to the production databases due to security and stability issues.
@@ -48,6 +48,7 @@ Create standalone databases outside of your production database servers with the
   - MySQL/MariaDB: Uses binlog replication events to capture and apply incremental changes to the target.
   - PostgreSQL: Uses WAL (Write-Ahead Log) with the pgoutput plugin to capture and apply incremental changes to the target.
   - Redis: Uses Redis Streams and Keyspace Notifications to capture and sync incremental changes in real-time.
+
 - **Batch Processing & Concurrency**:  
   Handles synchronization in batches for optimized performance and supports parallel synchronization for multiple collections/tables.
 - **Restart Resilience**: 
@@ -189,6 +190,7 @@ sync_configs:
         tables:
           - source_table: "source_stream"  # Redis Stream Name
             target_table: "" 
+
 ```
 
 ## Real-Time Synchronization
