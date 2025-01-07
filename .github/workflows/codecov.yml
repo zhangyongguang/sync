@@ -72,15 +72,12 @@ jobs:
             echo "Waiting for MongoDB..."
             sleep 1
           done
-
+          
+          sleep 5
           echo "All services are up!"
-
         
       - name: Run tests
         run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
-      - name: Check coverage file
-        run: cat coverage.txt
-
 
       - name: Tear down Docker Compose
         if: always()

@@ -66,23 +66,23 @@ func (s *PostgreSQLSyncer) Start(ctx context.Context) {
 
 	s.sourceConnNormal, err = pgx.Connect(ctx, s.cfg.SourceConnection)
 	if err != nil {
-		s.logger.Fatalf("[PostgreSQL] Normal connection failed: %v", err)
+		s.logger.Fatalf("[PostgreSQL] Failed to connect to source (normal): %v", err)
 	}
 	defer s.sourceConnNormal.Close(ctx)
 
 	replDSN, err := s.buildReplicationDSN(s.cfg.SourceConnection)
 	if err != nil {
-		s.logger.Fatalf("[PostgreSQL] Build replication DSN error: %v", err)
+		s.logger.Fatalf("[PostgreSQL] Failed to build replication DSN: %v", err)
 	}
 	s.sourceConnRepl, err = pgconn.Connect(ctx, replDSN)
 	if err != nil {
-		s.logger.Fatalf("[PostgreSQL] Replication connect failed: %v", err)
+		s.logger.Fatalf("[PostgreSQL] Failed to connect to source (replication): %v", err)
 	}
 	defer s.sourceConnRepl.Close(ctx)
 
 	s.targetDB, err = sql.Open("postgres", s.cfg.TargetConnection)
 	if err != nil {
-		s.logger.Fatalf("[PostgreSQL] Target DB connect failed: %v", err)
+		s.logger.Fatalf("[PostgreSQL] Failed to connect to target: %v", err)
 	}
 	defer s.targetDB.Close()
 
@@ -90,7 +90,7 @@ func (s *PostgreSQLSyncer) Start(ctx context.Context) {
 	s.outputPlugin = s.cfg.PGPlugin()
 	s.publicationNames = s.cfg.PGPublicationNames
 	if s.repSlot == "" || s.outputPlugin == "" {
-		s.logger.Fatalf("[PostgreSQL] Must specify slot and plugin")
+		s.logger.Fatalf("[PostgreSQL] Must specify pg_replication_slot and pg_plugin")
 	}
 
 	s.state = replicationState{
@@ -105,12 +105,14 @@ func (s *PostgreSQLSyncer) Start(ctx context.Context) {
 
 	atomic.StoreInt32(&s.lastExecError, 0)
 
-	if err := s.ensureReplicationSlot(ctx); err != nil {
-		s.logger.Fatalf("[PostgreSQL] ensureReplicationSlot failed: %v", err)
+	err = s.ensureReplicationSlot(ctx)
+	if err != nil {
+		s.logger.Fatalf("[PostgreSQL] Failed to ensure replication slot: %v", err)
 	}
 
 	if s.cfg.PGPositionPath != "" {
-		if lsnFromFile, err2 := s.loadPosition(s.cfg.PGPositionPath); err2 == nil && lsnFromFile > 0 {
+		lsnFromFile, err := s.loadPosition(s.cfg.PGPositionPath)
+		if err == nil && lsnFromFile > 0 {
 			s.logger.Infof("[PostgreSQL] Loaded last LSN from file: %X", lsnFromFile)
 			s.currentLsn = lsnFromFile
 			s.state.lastWrittenLSN = lsnFromFile
@@ -124,14 +126,15 @@ func (s *PostgreSQLSyncer) Start(ctx context.Context) {
 
 	err = s.startLogicalReplication(ctx)
 	if err != nil {
-		s.logger.Errorf("[PostgreSQL] startLogicalReplication failed: %v", err)
+		s.logger.Errorf("[PostgreSQL] Logical replication failed: %v", err)
 		return
 	}
-	s.logger.Info("[PostgreSQL] Synchronization completed.")
+
+	s.logger.Info("[PostgreSQL] Synchronization tasks completed.")
 }
 
-func (s *PostgreSQLSyncer) buildReplicationDSN(dsn string) (string, error) {
-	u, err := url.Parse(dsn)
+func (s *PostgreSQLSyncer) buildReplicationDSN(normalDSN string) (string, error) {
+	u, err := url.Parse(normalDSN)
 	if err != nil {
 		return "", err
 	}
@@ -156,18 +159,19 @@ func (s *PostgreSQLSyncer) ensureReplicationSlot(ctx context.Context) error {
 	if err != nil {
 		if !strings.Contains(err.Error(), "already exists") {
 			return fmt.Errorf("CreateReplicationSlot failed: %w", err)
+		}else {
+			s.logger.Infof("[PostgreSQL] Replication slot %s already exists. Using XLogPos as start if not loaded.", s.repSlot)
+			if s.currentLsn == 0 {
+				s.currentLsn = info.XLogPos
+			}
+			return nil
 		}
-		s.logger.Infof("[PostgreSQL] Slot %s already exists", s.repSlot)
-		if s.currentLsn == 0 {
-			s.currentLsn = info.XLogPos
-		}
-		return nil
 	}
 	lsn, err2 := pglogrepl.ParseLSN(slot.ConsistentPoint)
 	if err2 != nil {
 		return fmt.Errorf("ParseLSN => %w", err2)
 	}
-	s.logger.Infof("[PostgreSQL] Created slot %s at LSN %X", s.repSlot, lsn)
+	s.logger.Infof("[PostgreSQL] Created replication slot %s at LSN %X", s.repSlot, lsn)
 	if s.currentLsn == 0 {
 		s.currentLsn = lsn
 	}
@@ -175,7 +179,8 @@ func (s *PostgreSQLSyncer) ensureReplicationSlot(ctx context.Context) error {
 }
 
 func (s *PostgreSQLSyncer) initialSync(ctx context.Context) error {
-	s.logger.Info("[PostgreSQL] Starting initial full sync.")
+	s.logger.Info("[PostgreSQL] Starting initial full sync")
+
 	for _, dbmap := range s.cfg.Mappings {
 		srcSchema := dbmap.SourceSchema
 		if srcSchema == "" {
@@ -288,6 +293,10 @@ func (s *PostgreSQLSyncer) startLogicalReplication(ctx context.Context) error {
 			rawMsg, rErr := s.sourceConnRepl.ReceiveMessage(ctx2)
 			cancel()
 			if rErr != nil {
+				if strings.Contains(rErr.Error(), "context canceled") {
+					s.logger.Warnf("[PostgreSQL] context canceled, normal exit: %v", rErr)
+					return nil
+				}
 				if pgconn.Timeout(rErr) {
 					continue
 				}
