@@ -1,6 +1,4 @@
 -- Create databases (no "IF NOT EXISTS" in standard Postgres SQL)
-CREATE DATABASE source_db;
-CREATE DATABASE target_db;
 
 -- Switch to source_db
 \connect source_db
@@ -12,20 +10,21 @@ CREATE TABLE IF NOT EXISTS users (
     email VARCHAR(100)
 );
 
--- Switch to target_db
-\connect target_db
-
--- Create table users in target_db
-CREATE TABLE IF NOT EXISTS users (
+-- Create table orders in source_db
+CREATE TABLE IF NOT EXISTS orders (
     id SERIAL PRIMARY KEY,
-    name VARCHAR(100),
-    email VARCHAR(100)
+    user_id INT,
+    product VARCHAR(100),
+    quantity INT,
+    order_date TIMESTAMP
 );
 
 \c source_db
 SELECT * FROM pg_create_logical_replication_slot('sync_slot', 'pgoutput');
 
--- Create publication for logical replication
-CREATE PUBLICATION mypub FOR TABLE users;
+-- Create publication for logical replication including both users and orders tables
+CREATE PUBLICATION mypub FOR TABLE users, orders;
 ALTER TABLE users REPLICA IDENTITY FULL;
+ALTER TABLE orders REPLICA IDENTITY FULL;
+
 insert into users (id, name, email) values (1, 'John', 'John@mail' );
